@@ -1,0 +1,826 @@
+\documentclass[12pt,a4paper]{article}
+
+% Packages
+\usepackage[utf8]{inputenc}
+\usepackage[vietnamese]{babel}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{tikz}
+\usepackage{pgfplots}
+\usepackage{float}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+
+% Page setup
+\geometry{margin=2.5cm, headheight=15pt}
+\setlength{\headheight}{15pt}
+\addtolength{\topmargin}{-2.93912pt}
+\pgfplotsset{compat=1.18}
+
+% Header/Footer
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{Phân Tích CrisisSpot}
+\lhead{Nghiên Cứu Đa Phương Thức}
+\cfoot{\thepage}
+
+% Colors
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+% Code listing style
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{blue},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    numbers=left,
+    numbersep=5pt,
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    tabsize=2
+}
+\lstset{style=mystyle}
+
+% Title
+\title{
+    \vspace{-1cm}
+    \textbf{Phân Tích Chi Tiết Khung Học Tập Đa Phương Thức\\Dựa Trên Đồ Thị Và Ngữ Cảnh Xã Hội\\Cho Phân Loại Nội Dung Thảm Họa}\\[0.5cm]
+    \large Nghiên Cứu Toàn Diện Về CrisisSpot Framework
+}
+\author{
+    Báo Cáo Nghiên Cứu\\
+    \textit{Dự Án Crisis Summarization}
+}
+\date{Tháng 2, 2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Báo cáo này trình bày phân tích toàn diện về CrisisSpot - một khung học tập đa phương thức tiên tiến cho phân loại nội dung thảm họa trên mạng xã hội. Nghiên cứu tập trung vào bốn đóng góp chính: (1) Cơ chế Attention Nhúng Kép Đảo Ngược (IDEA) với Harmonious Attention Module (HAM) và Contrary Attention Module (CAM) để nắm bắt cả sự đồng thuận và mâu thuẫn giữa các phương thức với các tham số nhiệt độ tối ưu $T_{HAM}=1.65$ và $T_{CAM}=0.75$, (2) Học đồ thị đa phương thức sử dụng CLIP encoding và GraphSAGE với ngưỡng cosine similarity $\theta=0.75$, (3) Trích xuất 21 chiều đặc trưng ngữ cảnh xã hội bao gồm Text Semantic Profiling (TSP) và Social Interaction Metrics (SIM), và (4) Mạng kết hợp đa phương thức gồm MALN, SHLN, GFLN và JFLN. Kết quả thực nghiệm cho thấy CrisisSpot đạt F1-score 98.23\% trên CrisisMMD và 90.01\% trên TSEqD, vượt trội so với các baseline hiện tại.
+\end{abstract}
+
+\textbf{Từ khóa:} Đa phương thức, Attention mechanism, Graph neural networks, Ngữ cảnh xã hội, Phân loại thảm họa, BERT, ResNet, CLIP, GraphSAGE
+
+\tableofcontents
+\newpage
+
+%=====================================================
+\section{Giới Thiệu}
+%=====================================================
+
+\subsection{Bối Cảnh Nghiên Cứu}
+
+Trong thời đại số hóa, mạng xã hội đã trở thành nguồn thông tin quan trọng trong các tình huống khẩn cấp và thảm họa. Twitter, với hàng triệu bài đăng mỗi ngày, cung cấp thông tin thời gian thực về các sự kiện thảm họa. Theo thống kê, trong các sự kiện thảm họa lớn như động đất Nepal 2015 hay bão Harvey 2017, lượng tweet tăng đột biến lên đến 500\% so với ngày thường \cite{alam2018crisismmd}.
+
+Tuy nhiên, việc phân loại và lọc nội dung hữu ích từ lượng dữ liệu khổng lồ này đặt ra nhiều thách thức:
+
+\begin{itemize}
+    \item \textbf{Khối lượng dữ liệu:} Hàng triệu tweet được đăng trong vài giờ
+    \item \textbf{Đa dạng nội dung:} Thông tin, cảm xúc, tin đồn, spam
+    \item \textbf{Đa phương thức:} Kết hợp văn bản, hình ảnh, video
+    \item \textbf{Độ tin cậy:} Phân biệt nguồn đáng tin cậy và không đáng tin cậy
+\end{itemize}
+
+\subsection{Vấn Đề Nghiên Cứu}
+
+Các phương pháp phân loại nội dung thảm họa hiện tại gặp ba hạn chế chính được minh họa trong Bảng \ref{tab:limitations}:
+
+\begin{table}[H]
+\centering
+\caption{Hạn Chế Của Các Phương Pháp Hiện Tại}
+\label{tab:limitations}
+\small
+\begin{tabular}{l|p{5cm}|p{5cm}}
+\toprule
+\textbf{Hạn chế} & \textbf{Mô tả} & \textbf{Hậu quả} \\
+\midrule
+Tương tác phương thức hạn chế & Chỉ tập trung vào sự tương đồng, bỏ qua mâu thuẫn giữa văn bản và hình ảnh & Không phát hiện được thông tin sai lệch khi text và image mâu thuẫn \\
+\midrule
+Xử lý độc lập & Mỗi tweet được xử lý riêng lẻ, không tận dụng kiến thức từ các tweet tương tự & Bỏ lỡ thông tin bổ sung từ các bài viết liên quan \\
+\midrule
+Thiếu ngữ cảnh & Bỏ qua thông tin về độ tin cậy người dùng và mức độ tương tác xã hội & Khó phân biệt nguồn tin đáng tin cậy \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Đóng Góp Của CrisisSpot}
+
+CrisisSpot \cite{shahid2024crisisspot} giới thiệu bốn đổi mới chính để giải quyết các hạn chế trên:
+
+\begin{enumerate}[label=\textbf{(\arabic*)}]
+    \item \textbf{IDEA Attention:} Cơ chế attention mới với HAM (Harmonious Attention Module) để nắm bắt sự đồng thuận và CAM (Contrary Attention Module) để phát hiện mâu thuẫn giữa các phương thức
+    
+    \item \textbf{Multimodal Graph Learning:} Sử dụng CLIP để encode đa phương thức và GraphSAGE để lan truyền kiến thức giữa các tweet tương tự
+    
+    \item \textbf{Social Context Features:} Trích xuất 21 chiều đặc trưng bao gồm cảm xúc, sentiment, độ tin cậy người dùng
+    
+    \item \textbf{Multimodal Fusion Network:} Kiến trúc đa giai đoạn để kết hợp hiệu quả các nguồn thông tin
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=0.85]
+    \draw[thick, rounded corners, fill=blue!10] (0,0) rectangle (14,7);
+    \node[font=\bfseries\large] at (7,6.5) {CRISISSPOT - 4 ĐÓNG GÓP CHÍNH};
+    
+    \draw[thick, rounded corners, fill=green!25] (0.5,3.5) rectangle (6.5,6);
+    \node[align=center, font=\small] at (3.5,5.3) {\textbf{1. IDEA Attention}};
+    \node[align=center, font=\footnotesize] at (3.5,4.5) {HAM ($T=1.65$): Đồng thuận};
+    \node[align=center, font=\footnotesize] at (3.5,4) {CAM ($T=0.75$): Mâu thuẫn};
+    
+    \draw[thick, rounded corners, fill=orange!25] (7.5,3.5) rectangle (13.5,6);
+    \node[align=center, font=\small] at (10.5,5.3) {\textbf{2. Học Đồ Thị}};
+    \node[align=center, font=\footnotesize] at (10.5,4.5) {CLIP encoding (512d)};
+    \node[align=center, font=\footnotesize] at (10.5,4) {GraphSAGE (K=3 layers)};
+    
+    \draw[thick, rounded corners, fill=purple!25] (0.5,0.5) rectangle (6.5,3);
+    \node[align=center, font=\small] at (3.5,2.3) {\textbf{3. Ngữ Cảnh Xã Hội}};
+    \node[align=center, font=\footnotesize] at (3.5,1.5) {TSP: 15 dims (Sentiment, Emotion)};
+    \node[align=center, font=\footnotesize] at (3.5,1) {SIM: 6 dims (User metrics)};
+    
+    \draw[thick, rounded corners, fill=red!25] (7.5,0.5) rectangle (13.5,3);
+    \node[align=center, font=\small] at (10.5,2.3) {\textbf{4. Mạng Kết Hợp}};
+    \node[align=center, font=\footnotesize] at (10.5,1.5) {MALN (1792$\rightarrow$128)};
+    \node[align=center, font=\footnotesize] at (10.5,1) {SHLN (21$\rightarrow$8), JFLN (64)};
+\end{tikzpicture}
+\caption{Bốn đóng góp chính của CrisisSpot Framework}
+\label{fig:contributions}
+\end{figure}
+
+%=====================================================
+\section{Kiến Trúc CrisisSpot}
+%=====================================================
+
+\subsection{Tổng Quan Kiến Trúc}
+
+Kiến trúc CrisisSpot được thiết kế theo nguyên tắc modular, cho phép xử lý song song các luồng thông tin khác nhau trước khi kết hợp. Hình \ref{fig:architecture} minh họa kiến trúc tổng quan:
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=0.75, every node/.style={font=\footnotesize}]
+    % Input
+    \draw[thick, fill=gray!20] (-1,0) rectangle (2,2);
+    \node[align=center] at (0.5,1) {\textbf{Tweet Input}\\Text + Image\\+ Metadata};
+    
+    % Feature Extraction
+    \draw[thick, fill=blue!15] (3,1.5) rectangle (6,3);
+    \node[align=center] at (4.5,2.25) {\textbf{BERT}\\768 dims};
+    
+    \draw[thick, fill=blue!15] (3,-1) rectangle (6,0.5);
+    \node[align=center] at (4.5,-0.25) {\textbf{ResNet50}\\1024 dims};
+    
+    % IDEA
+    \draw[thick, fill=green!20] (7,0) rectangle (11,3);
+    \node[align=center, font=\small\bfseries] at (9,2.5) {IDEA Attention};
+    \node[align=center] at (9,1.5) {HAM + CAM};
+    \node[align=center] at (9,0.7) {FAV: 1792d};
+    
+    % Graph Learning
+    \draw[thick, fill=orange!20] (7,-3) rectangle (11,-1);
+    \node[align=center] at (9,-1.5) {\textbf{Graph Learning}};
+    \node[align=center] at (9,-2.3) {CLIP + GraphSAGE};
+    
+    % Social Context
+    \draw[thick, fill=purple!20] (3,-3.5) rectangle (6,-2);
+    \node[align=center] at (4.5,-2.75) {\textbf{Social Context}\\21 dims};
+    
+    % Fusion Network
+    \draw[thick, fill=red!20] (12,0) rectangle (15,2);
+    \node[align=center] at (13.5,1.5) {\textbf{MFN}};
+    \node[align=center] at (13.5,0.7) {MALN+SHLN};
+    \node[align=center] at (13.5,0.2) {+GFLN+JFLN};
+    
+    % Output
+    \draw[thick, fill=yellow!30] (16,0) rectangle (18,2);
+    \node[align=center] at (17,1) {\textbf{Predict}\\Class};
+    
+    % Arrows
+    \draw[->, thick] (2,1.5) -- (3,2.25);
+    \draw[->, thick] (2,0.5) -- (3,-0.25);
+    \draw[->, thick] (6,2.25) -- (7,2);
+    \draw[->, thick] (6,-0.25) -- (7,0.7);
+    \draw[->, thick] (6,-0.25) -- (6.5,-0.25) -- (6.5,-2) -- (7,-2);
+    \draw[->, thick] (11,1.5) -- (12,1.5);
+    \draw[->, thick] (11,-2) -- (11.5,-2) -- (11.5,0.5) -- (12,0.5);
+    \draw[->, thick] (6,-2.75) -- (12,0.2);
+    \draw[->, thick] (15,1) -- (16,1);
+\end{tikzpicture}
+\caption{Kiến trúc tổng quan của CrisisSpot Framework}
+\label{fig:architecture}
+\end{figure}
+
+\subsection{Feature Extraction Input Module (FEIM)}
+
+FEIM thực hiện trích xuất đặc trưng từ hai phương thức:
+
+\subsubsection{Text Feature Extraction với BERT}
+
+Văn bản được mã hóa sử dụng BERT-base:
+
+\begin{equation}
+H_t = \text{BERT}(S_t) \in \mathbb{R}^{d \times d_t}
+\end{equation}
+
+Trong đó:
+\begin{itemize}
+    \item $S_t = \{T_1, T_2, ..., T_n\}$: Chuỗi token đầu vào
+    \item $d = 128$: Số token tối đa (max sequence length)
+    \item $d_t = 768$: Chiều embedding của BERT-base
+\end{itemize}
+
+\subsubsection{Visual Feature Extraction với ResNet50}
+
+Hình ảnh được xử lý qua ResNet50 với customization:
+
+\begin{equation}
+H_v = \text{Reshape}(\text{Conv}_{custom}(\text{ResNet50}_{conv4}(I))) \in \mathbb{R}^{d \times d_v}
+\end{equation}
+
+Trong đó:
+\begin{itemize}
+    \item Layer trích xuất: \texttt{conv4\_block6\_3\_conv}
+    \item Custom Conv: 1024 filters, kernel $4 \times 4$
+    \item Feature map được reshape từ $(1, 121, 1024)$ thành $(1, 128, 1024)$ với padding
+    \item $d_v = 1024$: Chiều đặc trưng visual
+\end{itemize}
+
+\textbf{Lý do chọn layer conv4:} Layer này cung cấp đặc trưng ở mức trừu tượng trung bình, đủ để capture semantic information mà vẫn giữ được spatial details, đồng thời cho phép align dimension với text encoder (128 tokens).
+
+%=====================================================
+\section{Cơ Chế IDEA Attention}
+%=====================================================
+
+\subsection{Tổng Quan IDEA}
+
+IDEA (Inverted Dual Embedded Attention) là đóng góp cốt lõi của CrisisSpot. Khác với các cơ chế attention truyền thống chỉ tìm kiếm sự tương đồng, IDEA đồng thời nắm bắt cả alignment và contradiction giữa các phương thức.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=0.7, every node/.style={font=\small}]
+    % Input
+    \draw[thick, fill=blue!15] (0,6) rectangle (3,7.5);
+    \node at (1.5,6.75) {$H_t$ (768d)};
+    
+    \draw[thick, fill=green!15] (0,4) rectangle (3,5.5);
+    \node at (1.5,4.75) {$H_v$ (1024d)};
+    
+    % Projection
+    \draw[thick, fill=yellow!20] (4,5) rectangle (7,6.5);
+    \node[align=center] at (5.5,5.75) {Shared Space\\128d};
+    
+    \draw[->, thick] (3,6.75) -- (4,6);
+    \draw[->, thick] (3,4.75) -- (4,5.5);
+    
+    % Similarity
+    \draw[thick, fill=orange!20] (8,5) rectangle (11,6.5);
+    \node[align=center] at (9.5,5.75) {$S_{sim}$\\128×128};
+    
+    \draw[->, thick] (7,5.75) -- (8,5.75);
+    
+    % HAM branch
+    \draw[thick, fill=green!30] (12,6.5) rectangle (15,8);
+    \node[align=center] at (13.5,7.25) {\textbf{HAM}\\$T=1.65$};
+    
+    % CAM branch
+    \draw[thick, fill=red!30] (12,3.5) rectangle (15,5);
+    \node[align=center] at (13.5,4.25) {\textbf{CAM}\\$T=0.75$\\$-S_{sim}$};
+    
+    \draw[->, thick] (11,6) -- (12,7.25);
+    \draw[->, thick] (11,5.5) -- (12,4.25);
+    
+    % Outputs
+    \draw[thick, fill=cyan!20] (16,6.5) rectangle (19,8);
+    \node[align=center] at (17.5,7.25) {$T_{HAM}, V_{HAM}$};
+    
+    \draw[thick, fill=pink!30] (16,3.5) rectangle (19,5);
+    \node[align=center] at (17.5,4.25) {$T_{CAM}, V_{CAM}$};
+    
+    \draw[->, thick] (15,7.25) -- (16,7.25);
+    \draw[->, thick] (15,4.25) -- (16,4.25);
+    
+    % FAV
+    \draw[thick, fill=purple!25] (16,1) rectangle (19,2.5);
+    \node[align=center] at (17.5,1.75) {\textbf{FAV}\\1792d};
+    
+    \draw[->, thick] (17.5,3.5) -- (17.5,2.5);
+    \draw[->, thick] (17.5,6.5) -- (17.5,2.5);
+\end{tikzpicture}
+\caption{Chi tiết cơ chế IDEA Attention với HAM và CAM}
+\label{fig:idea_detail}
+\end{figure}
+
+\subsection{Shared Embedding Module}
+
+Đầu tiên, hai phương thức được chiếu vào không gian dùng chung $d_{se} = 1024$:
+
+\begin{equation}
+H_{text} = \tanh(\text{BatchNorm}(H_t \cdot W_t + b_t)) \in \mathbb{R}^{128 \times 1024}
+\label{eq:text_proj}
+\end{equation}
+
+\begin{equation}
+H_{vis} = \tanh(\text{BatchNorm}(H_v \cdot W_v + b_v)) \in \mathbb{R}^{128 \times 1024}
+\label{eq:vis_proj}
+\end{equation}
+
+Trong đó:
+\begin{itemize}
+    \item $W_t \in \mathbb{R}^{768 \times 1024}$, $W_v \in \mathbb{R}^{1024 \times 1024}$: Ma trận chiếu học được
+    \item BatchNorm: Chuẩn hóa để ổn định training
+    \item Tanh: Activation function để bound values trong $[-1, 1]$
+\end{itemize}
+
+\subsection{Similarity Matrix Computation}
+
+Ma trận tương đồng được tính qua hai bước:
+
+\textbf{Bước 1:} Tính intermediate similarity
+\begin{equation}
+\hat{S}_{sim}[i,k] = \tanh(H_{text}[i,m] + H_{vis}[i,m])
+\end{equation}
+
+\textbf{Bước 2:} Áp dụng learnable transformation
+\begin{equation}
+S_{sim} = \hat{S}_{sim} \cdot W_{sim} \in \mathbb{R}^{128 \times 128}
+\label{eq:similarity}
+\end{equation}
+
+Với $W_{sim} \in \mathbb{R}^{1024 \times 128}$ là ma trận học được.
+
+\textbf{Ý nghĩa:}
+\begin{itemize}
+    \item Hàng $i$: Độ tương đồng giữa visual feature thứ $i$ với TẤT CẢ text features
+    \item Cột $j$: Độ tương đồng giữa text feature thứ $j$ với TẤT CẢ visual features
+\end{itemize}
+
+\subsection{Harmonious Attention Module (HAM)}
+
+HAM tìm kiếm các vùng mà hai phương thức ĐỒNG THUẬN:
+
+\begin{equation}
+Att_{HAM} = \text{softmax}\left(\frac{S_{sim}}{T_{HAM}}\right), \quad T_{HAM} = 1.65
+\label{eq:ham}
+\end{equation}
+
+\begin{equation}
+T_{HAM} = Att_{HAM} \cdot H_t, \quad V_{HAM} = Att_{HAM} \cdot H_v
+\end{equation}
+
+\textbf{Tại sao $T_{HAM} = 1.65$ (nhiệt độ cao)?}
+
+Nhiệt độ cao tạo ra phân bố attention mềm và phân tán hơn:
+\begin{itemize}
+    \item Cho phép model xem xét nhiều vùng tương đồng cùng lúc
+    \item Tránh over-focusing vào một điểm duy nhất
+    \item Phù hợp để capture global alignment patterns
+\end{itemize}
+
+\begin{table}[H]
+\centering
+\caption{Ảnh Hưởng Của Nhiệt Độ Đến Phân Bố Attention}
+\label{tab:temperature}
+\begin{tabular}{c|c|l}
+\toprule
+\textbf{T} & \textbf{Phân bố} & \textbf{Ví dụ attention weights} \\
+\midrule
+0.5 & Sharp & $[0.02, 0.01, \mathbf{0.92}, 0.03, 0.02]$ \\
+1.0 & Normal & $[0.08, 0.05, \mathbf{0.65}, 0.12, 0.10]$ \\
+1.65 & Soft & $[0.15, 0.12, \mathbf{0.35}, 0.20, 0.18]$ \\
+2.0 & Very soft & $[0.18, 0.16, \mathbf{0.28}, 0.21, 0.17]$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Contrary Attention Module (CAM)}
+
+CAM là đóng góp độc đáo của CrisisSpot, phát hiện MÂU THUẪN giữa modalities:
+
+\begin{equation}
+Att_{CAM} = \text{softmax}\left(\frac{-S_{sim}}{T_{CAM}}\right), \quad T_{CAM} = 0.75
+\label{eq:cam}
+\end{equation}
+
+\begin{equation}
+T_{CAM} = Att_{CAM} \cdot H_t, \quad V_{CAM} = Att_{CAM} \cdot H_v
+\end{equation}
+
+\textbf{Key insight:} Nhân với $-1$ để ĐẢO NGƯỢC similarity matrix:
+\begin{itemize}
+    \item Vùng có similarity CAO (đồng thuận) $\rightarrow$ attention THẤP
+    \item Vùng có similarity THẤP (mâu thuẫn) $\rightarrow$ attention CAO
+\end{itemize}
+
+\textbf{Tại sao $T_{CAM} = 0.75$ (nhiệt độ thấp)?}
+\begin{itemize}
+    \item Tạo phân bố sắc nét, tập trung
+    \item Giúp pinpoint chính xác điểm mâu thuẫn
+    \item Quan trọng cho việc phát hiện misinformation
+\end{itemize}
+
+\subsection{Ứng Dụng Thực Tế Của CAM}
+
+\begin{table}[H]
+\centering
+\caption{Ví Dụ Phát Hiện Mâu Thuẫn Với CAM}
+\label{tab:cam_examples}
+\small
+\begin{tabular}{p{3cm}|p{4cm}|p{4cm}|c}
+\toprule
+\textbf{Hình ảnh} & \textbf{Văn bản} & \textbf{CAM phát hiện} & \textbf{Label} \\
+\midrule
+Tòa nhà đổ sập, khói bốc lên & ``Mọi thứ bình thường, không có gì xảy ra'' & Mâu thuẫn cao giữa visual damage và text claim & Unreliable \\
+\midrule
+Ảnh cũ từ thảm họa khác & ``KHẨN: Động đất vừa xảy ra hôm nay!'' & Temporal inconsistency detected & Misinformation \\
+\midrule
+Cảnh bình thường & ``Lũ lụt nghiêm trọng, cần cứu trợ'' & Text claim không match visual evidence & Needs verification \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Fused Attended Vector (FAV)}
+
+Các outputs từ HAM và CAM được kết hợp thành FAV 1792 chiều:
+
+\begin{equation}
+FAV = [T_{HAM} \| V_{HAM} \| T_{CAM} \| V_{CAM} \| T_{HAM} \odot V_{HAM} \| T_{CAM} \odot V_{CAM} \| |T_{HAM} - V_{HAM}|]
+\label{eq:fav}
+\end{equation}
+
+Trong đó:
+\begin{itemize}
+    \item $\|$: Concatenation
+    \item $\odot$: Element-wise multiplication (interaction term)
+    \item $|\cdot|$: Absolute difference (contrast term)
+\end{itemize}
+
+%=====================================================
+\section{Học Đồ Thị Đa Phương Thức}
+%=====================================================
+
+\subsection{Multimodal Encoding với CLIP}
+
+CrisisSpot sử dụng CLIP (Contrastive Language-Image Pre-training) để tạo embedding thống nhất cho cả text và image:
+
+\begin{equation}
+e_{text} = \text{CLIP}_{text}(t) \in \mathbb{R}^{512}
+\end{equation}
+\begin{equation}
+e_{image} = \text{CLIP}_{image}(v) \in \mathbb{R}^{512}
+\end{equation}
+
+Ưu điểm của CLIP:
+\begin{itemize}
+    \item Pre-trained trên 400M image-text pairs
+    \item Aligned embedding space cho cả hai modalities
+    \item Zero-shot transfer capability
+    \item Semantic understanding vượt trội
+\end{itemize}
+
+\subsection{Graph Construction}
+
+Đồ thị được xây dựng dựa trên cosine similarity với ngưỡng $\theta = 0.75$:
+
+\begin{equation}
+A_{ij} = \begin{cases}
+1 & \text{nếu } \cos(H_i, H_j) \geq 0.75 \\
+0 & \text{ngược lại}
+\end{cases}
+\label{eq:graph_adj}
+\end{equation}
+
+Với:
+\begin{equation}
+\cos(H_i, H_j) = \frac{H_i \cdot H_j}{\|H_i\| \cdot \|H_j\|}
+\end{equation}
+
+\textbf{Lý do chọn $\theta = 0.75$:}
+\begin{itemize}
+    \item Quá thấp ($<0.6$): Đồ thị quá dày, noise nhiều
+    \item Quá cao ($>0.9$): Đồ thị quá thưa, mất kết nối
+    \item $0.75$: Cân bằng giữa precision và recall của edges
+\end{itemize}
+
+\subsection{GraphSAGE Algorithm}
+
+Thuật toán GraphSAGE thực hiện knowledge propagation qua K layers:
+
+\begin{algorithm}[H]
+\caption{GraphSAGE cho CrisisSpot}
+\label{alg:graphsage}
+\begin{algorithmic}[1]
+\STATE \textbf{Input:} Đồ thị $G(V, E)$, embeddings $\{h_v^0\}$, số layers $K$
+\STATE \textbf{Output:} Updated embeddings $\{z_v\}$
+\FOR{$k = 1$ to $K$}
+    \FOR{mỗi node $v \in V$}
+        \STATE $h_{\mathcal{N}(v)}^k \leftarrow \text{AGGREGATE}(\{h_u^{k-1} : u \in \mathcal{N}(v)\})$
+        \STATE $h_v^k \leftarrow \sigma(W^k \cdot [h_v^{k-1} \| h_{\mathcal{N}(v)}^k])$
+        \STATE $h_v^k \leftarrow h_v^k / \|h_v^k\|_2$ \COMMENT{L2 normalization}
+    \ENDFOR
+\ENDFOR
+\RETURN $z_v = h_v^K$ for all $v \in V$
+\end{algorithmic}
+\end{algorithm}
+
+Trong CrisisSpot, $K = 3$ layers và AGGREGATE = MEAN:
+
+\begin{equation}
+h_{\mathcal{N}(v)}^k = \frac{1}{|\mathcal{N}(v)|} \sum_{u \in \mathcal{N}(v)} h_u^{k-1}
+\end{equation}
+
+\subsection{Lợi Ích Của Graph Learning}
+
+\begin{table}[H]
+\centering
+\caption{So Sánh Trước và Sau Graph Propagation}
+\label{tab:graph_benefit}
+\begin{tabular}{l|c|c|l}
+\toprule
+\textbf{Tweet} & \textbf{Score trước} & \textbf{Score sau} & \textbf{Giải thích} \\
+\midrule
+``Tòa nhà sập'' & 0.70 & 0.85 & Reinforced by similar tweets \\
+``Cứu hộ đang đến'' & 0.60 & 0.80 & Connected to disaster cluster \\
+``Nhiều người mắc kẹt'' & 0.65 & 0.82 & Collective knowledge boost \\
+\midrule
+``Bán hàng giảm giá'' & 0.30 & 0.25 & Isolated, no reinforcement \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%=====================================================
+\section{Đặc Trưng Ngữ Cảnh Xã Hội}
+%=====================================================
+
+\subsection{Tổng Quan 21 Chiều Đặc Trưng}
+
+CrisisSpot trích xuất Social Context Features bao gồm 21 chiều, chia thành hai nhóm chính:
+
+\begin{table}[H]
+\centering
+\caption{Chi Tiết 21 Chiều Đặc Trưng Ngữ Cảnh Xã Hội}
+\label{tab:social_full}
+\small
+\begin{tabular}{l|l|c|l|l}
+\toprule
+\textbf{Nhóm} & \textbf{Đặc trưng} & \textbf{Dims} & \textbf{Tool/Source} & \textbf{Mô tả} \\
+\midrule
+\multirow{6}{*}{\rotatebox{90}{TSP (15)}} 
+& Positive & 1 & VADER & Tỷ lệ sentiment tích cực \\
+& Negative & 1 & VADER & Tỷ lệ sentiment tiêu cực \\
+& Neutral & 1 & VADER & Tỷ lệ sentiment trung tính \\
+\cmidrule{2-5}
+& Emotions & 11 & NRC EmoLex & anger, fear, joy, etc. \\
+\cmidrule{2-5}
+& CIS & 1 & Crisis Lexicon & Crisis Informative Score \\
+\midrule
+\multirow{6}{*}{\rotatebox{90}{SIM (6)}} 
+& Followers & 1 & Twitter API & Số followers \\
+& Friends & 1 & Twitter API & Số following \\
+& Tweets & 1 & Twitter API & Tổng số tweets \\
+& Likes & 1 & Twitter API & Số likes nhận được \\
+& Retweets & 1 & Twitter API & Số retweets \\
+\cmidrule{2-5}
+& UIS & 1 & History & User Informative Score \\
+\midrule
+\multicolumn{2}{l|}{\textbf{Tổng}} & \textbf{21} & & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Crisis Informative Score (CIS)}
+
+CIS đo lường mức độ liên quan đến crisis của một tweet:
+
+\begin{equation}
+CIS = \frac{\sum_{w \in \text{tweet}} \mathbb{1}[w \in \mathcal{L}_{crisis}]}{|\text{tweet}|}
+\label{eq:cis}
+\end{equation}
+
+Trong đó $\mathcal{L}_{crisis}$ là từ điển 4,268 thuật ngữ khủng hoảng bao gồm:
+\begin{itemize}
+    \item Disaster types: earthquake, flood, hurricane, tsunami, wildfire
+    \item Actions: evacuate, rescue, shelter, donate, volunteer
+    \item Damage: collapsed, destroyed, casualties, victims, injured
+    \item Response: emergency, relief, aid, support, recovery
+\end{itemize}
+
+\subsection{User Informative Score (UIS)}
+
+UIS đánh giá độ tin cậy của người dùng dựa trên lịch sử:
+
+\begin{equation}
+UIS = \frac{N_{informative} - N_{non-informative}}{N_{total}}
+\label{eq:uis}
+\end{equation}
+
+\textbf{Ý nghĩa:}
+\begin{itemize}
+    \item $UIS > 0$: Người dùng thường đăng nội dung informative
+    \item $UIS < 0$: Người dùng thường đăng nội dung non-informative
+    \item $UIS \approx 0$: Không rõ ràng
+\end{itemize}
+
+%=====================================================
+\section{Mạng Kết Hợp Đa Phương Thức (MFN)}
+%=====================================================
+
+\subsection{Kiến Trúc MFN}
+
+MFN gồm 4 sub-networks:
+
+\begin{enumerate}
+    \item \textbf{MALN} (Multimodal Attention Learning Network): FAV $\rightarrow$ 128d
+    \item \textbf{SHLN} (Social Context Handling Learning Network): SHV $\rightarrow$ 8d
+    \item \textbf{GFLN} (Graph Feature Learning Network): Graph output $\rightarrow$ variable
+    \item \textbf{JFLN} (Joint Fusion Learning Network): Concat $\rightarrow$ 64d $\rightarrow$ Class
+\end{enumerate}
+
+\subsection{MALN Architecture}
+
+\begin{equation}
+MALN: 1792 \xrightarrow{Dense} 1024 \xrightarrow{Dense} 512 \xrightarrow{Dense} 256 \xrightarrow{Dense} 128
+\end{equation}
+
+Mỗi layer có:
+\begin{itemize}
+    \item ReLU activation
+    \item Dropout = 0.2
+    \item BatchNormalization
+\end{itemize}
+
+\subsection{JFLN và Prediction}
+
+\begin{equation}
+h_{joint} = \text{JFLN}([h_{MALN} \| h_{SHLN} \| h_{GFLN}])
+\end{equation}
+
+\begin{equation}
+\hat{y} = \begin{cases}
+\text{sigmoid}(W_p \cdot h_{joint} + b_p) & \text{Binary classification} \\
+\text{softmax}(W_p \cdot h_{joint} + b_p) & \text{Multi-class classification}
+\end{cases}
+\end{equation}
+
+%=====================================================
+\section{Kết Quả Thực Nghiệm}
+%=====================================================
+
+\subsection{Tập Dữ Liệu}
+
+\begin{table}[H]
+\centering
+\caption{Thông Tin Tập Dữ Liệu}
+\label{tab:datasets}
+\begin{tabular}{l|c|c|l|l}
+\toprule
+\textbf{Dataset} & \textbf{Samples} & \textbf{Events} & \textbf{Tasks} & \textbf{Language} \\
+\midrule
+CrisisMMD & 18,082 & 7 disasters & Informative, Humanitarian & English \\
+TSEqD & 10,352 & Turkey-Syria EQ 2023 & Informative, Humanitarian & Multilingual \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Kết Quả So Sánh Trên CrisisMMD}
+
+\begin{table}[H]
+\centering
+\caption{Kết Quả Chi Tiết Trên CrisisMMD (\%)}
+\label{tab:results_mmd}
+\begin{tabular}{l|cccc|cccc}
+\toprule
+\multirow{2}{*}{\textbf{Method}} & \multicolumn{4}{c|}{\textbf{Informativeness}} & \multicolumn{4}{c}{\textbf{Humanitarian}} \\
+& Acc & P & R & F1 & Acc & P & R & F1 \\
+\midrule
+BERT only & 87.45 & 88.23 & 89.56 & 89.12 & 68.92 & 70.12 & 72.34 & 71.23 \\
+ResNet only & 84.23 & 85.12 & 86.23 & 85.67 & 65.78 & 67.23 & 69.67 & 68.45 \\
+Early Fusion & 90.12 & 91.23 & 92.34 & 91.78 & 75.34 & 76.89 & 78.23 & 77.56 \\
+ViLBERT & 93.12 & 94.23 & 95.45 & 94.85 & 79.56 & 81.23 & 83.12 & 82.15 \\
+DMCC & 95.23 & 96.12 & 96.82 & 96.47 & 83.45 & 84.67 & 85.98 & 85.32 \\
+\midrule
+\textbf{CrisisSpot} & \textbf{97.58} & \textbf{97.89} & \textbf{98.56} & \textbf{98.23} & \textbf{87.89} & \textbf{88.45} & \textbf{90.89} & \textbf{89.67} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Ablation Study}
+
+\begin{table}[H]
+\centering
+\caption{Ablation Study - Đóng Góp Của Từng Thành Phần}
+\label{tab:ablation}
+\begin{tabular}{l|c|c|c|l}
+\toprule
+\textbf{Configuration} & \textbf{Acc} & \textbf{F1} & \textbf{$\Delta$F1} & \textbf{Insight} \\
+\midrule
+Full CrisisSpot & 97.58 & 98.23 & --- & Baseline \\
+\midrule
+w/o CAM & 95.12 & 95.78 & -2.45 & Contrary attention quan trọng \\
+w/o HAM & 94.85 & 95.23 & -3.00 & Harmonious attention cốt lõi \\
+w/o Graph & 93.98 & 94.08 & -4.15 & Graph learning đóng góp lớn \\
+w/o SCFM & 94.63 & 96.14 & -2.09 & Social context hữu ích \\
+\midrule
+Text only & 87.45 & 89.12 & -9.11 & Thiếu visual information \\
+Image only & 84.23 & 85.67 & -12.56 & Text quan trọng hơn image \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Thời Gian Suy Luận}
+
+\begin{table}[H]
+\centering
+\caption{So Sánh Thời Gian Suy Luận}
+\label{tab:inference}
+\begin{tabular}{l|c|c}
+\toprule
+\textbf{Method} & \textbf{Time (ms/sample)} & \textbf{Speedup} \\
+\midrule
+ViLBERT & 31.98 & 1.0x \\
+RoBERTa-MFT & 28.95 & 1.1x \\
+DMCC & 22.45 & 1.4x \\
+\textbf{CrisisSpot} & \textbf{16.45} & \textbf{1.9x} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%=====================================================
+\section{Thảo Luận và Kết Luận}
+%=====================================================
+
+\subsection{Những Đóng Góp Chính}
+
+CrisisSpot đã chứng minh hiệu quả vượt trội trong phân loại nội dung thảm họa:
+
+\begin{enumerate}
+    \item \textbf{IDEA Attention:} Đóng góp F1 improvement +5.45\% so với attention thông thường
+    \item \textbf{Graph Learning:} Collective knowledge boost +4.15\% F1
+    \item \textbf{Social Context:} User credibility awareness +2.09\% F1
+    \item \textbf{Efficiency:} 1.9x speedup so với ViLBERT
+\end{enumerate}
+
+\subsection{Hướng Phát Triển}
+
+\begin{itemize}
+    \item Tích hợp Large Language Models (LLMs) như GPT-4
+    \item Hỗ trợ video và audio modalities
+    \item Real-time streaming classification
+    \item Cross-lingual và zero-shot transfer
+\end{itemize}
+
+%=====================================================
+% References
+%=====================================================
+\begin{thebibliography}{9}
+
+\bibitem{alam2018crisismmd}
+Alam, F., Ofli, F., \& Imran, M. (2018).
+CrisisMMD: Multimodal twitter datasets from natural disasters.
+\textit{ICWSM}.
+
+\bibitem{shahid2024crisisspot}
+Shahid, S., et al. (2024).
+A Social Context-aware Graph-based Multimodal Attentive Learning Framework.
+\textit{arXiv:2410.08814}.
+
+\bibitem{hamilton2017graphsage}
+Hamilton, W., Ying, Z., \& Leskovec, J. (2017).
+Inductive representation learning on large graphs.
+\textit{NeurIPS}.
+
+\bibitem{radford2021clip}
+Radford, A., et al. (2021).
+Learning transferable visual models from natural language supervision.
+\textit{ICML}.
+
+\bibitem{devlin2019bert}
+Devlin, J., et al. (2019).
+BERT: Pre-training of deep bidirectional transformers.
+\textit{NAACL}.
+
+\end{thebibliography}
+
+\end{document}

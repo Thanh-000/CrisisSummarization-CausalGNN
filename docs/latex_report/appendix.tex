@@ -1,0 +1,354 @@
+\documentclass[12pt,a4paper]{article}
+
+% Packages
+\usepackage[utf8]{inputenc}
+\usepackage[vietnamese]{babel}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{caption}
+\usepackage{tikz}
+\usepackage{pgfplots}
+\usepackage{float}
+
+\geometry{margin=2.5cm}
+\pgfplotsset{compat=1.18}
+
+\title{\textbf{Phụ Lục: Hình Ảnh và Bảng Biểu Bổ Sung}\\Nghiên Cứu CrisisSpot}
+\author{Dự Án Crisis Summarization}
+\date{Tháng 2, 2026}
+
+\begin{document}
+
+\maketitle
+
+%=====================================================
+\section{Sơ Đồ Chi Tiết IDEA Attention}
+%=====================================================
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=0.75, every node/.style={font=\small}]
+    % Input embeddings
+    \draw[thick, fill=blue!20] (0,8) rectangle (3,9);
+    \node at (1.5,8.5) {$H_{text}$ (768d)};
+    
+    \draw[thick, fill=green!20] (0,6) rectangle (3,7);
+    \node at (1.5,6.5) {$H_{visual}$ (1024d)};
+    
+    % Projection
+    \draw[thick, fill=yellow!20] (5,7) rectangle (8,8);
+    \node at (6.5,7.5) {Chiếu → 128d};
+    
+    \draw[->, thick] (3,8.5) -- (5,7.75);
+    \draw[->, thick] (3,6.5) -- (5,7.25);
+    
+    % Similarity Matrix
+    \draw[thick, fill=orange!20] (10,6.5) rectangle (13,8.5);
+    \node[align=center] at (11.5,7.5) {$S_{sim}$\\128×128};
+    
+    \draw[->, thick] (8,7.5) -- (10,7.5);
+    
+    % HAM and CAM branches
+    \draw[thick, fill=green!30] (10,4) rectangle (13,5.5);
+    \node[align=center] at (11.5,4.75) {\textbf{HAM}\\$T=1.65$};
+    
+    \draw[thick, fill=red!30] (10,1.5) rectangle (13,3);
+    \node[align=center] at (11.5,2.25) {\textbf{CAM}\\$T=0.75$};
+    
+    \draw[->, thick] (11.5,6.5) -- (11.5,5.5);
+    \draw[->, thick] (11.5,6.5) -- (11.5,4) -- (11.5,3);
+    
+    % Outputs
+    \draw[thick, fill=cyan!20] (15,4) rectangle (18,5.5);
+    \node[align=center] at (16.5,4.75) {$T_{HAM}, V_{HAM}$};
+    
+    \draw[thick, fill=pink!30] (15,1.5) rectangle (18,3);
+    \node[align=center] at (16.5,2.25) {$T_{CAM}, V_{CAM}$};
+    
+    \draw[->, thick] (13,4.75) -- (15,4.75);
+    \draw[->, thick] (13,2.25) -- (15,2.25);
+    
+    % FAV
+    \draw[thick, fill=purple!20] (15,-0.5) rectangle (18,0.5);
+    \node at (16.5,0) {\textbf{FAV} (1792d)};
+    
+    \draw[->, thick] (16.5,1.5) -- (16.5,0.5);
+    \draw[->, thick] (16.5,4) -- (16.5,0.5);
+\end{tikzpicture}
+\caption{Sơ đồ chi tiết cơ chế IDEA Attention}
+\label{fig:idea_detail}
+\end{figure}
+
+%=====================================================
+\section{Biểu Đồ So Sánh Phương Pháp}
+%=====================================================
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    title={\textbf{So sánh Accuracy trên CrisisMMD}},
+    xlabel={Phương pháp},
+    ylabel={Accuracy (\%)},
+    ybar,
+    width=14cm,
+    height=8cm,
+    symbolic x coords={Text Only, Image Only, Early Fusion, ViLBERT, DMCC, CrisisSpot},
+    xtick=data,
+    x tick label style={rotate=15, anchor=east},
+    ymin=75, ymax=100,
+    bar width=20pt,
+    nodes near coords,
+    every node near coord/.append style={font=\footnotesize},
+]
+\addplot[fill=blue!50] coordinates {
+    (Text Only, 87.45)
+    (Image Only, 84.23)
+    (Early Fusion, 90.12)
+    (ViLBERT, 93.12)
+    (DMCC, 95.23)
+    (CrisisSpot, 97.58)
+};
+\end{axis}
+\end{tikzpicture}
+\caption{So sánh Accuracy các phương pháp trên tác vụ Thông tin}
+\label{fig:accuracy_compare}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    title={\textbf{Ablation Study - Đóng góp của từng thành phần}},
+    xbar,
+    width=14cm,
+    height=8cm,
+    xlabel={Giảm F1-Score (\%)},
+    symbolic y coords={Chỉ Image, Chỉ Text, w/o Graph, w/o HAM, w/o CAM, w/o SCFM},
+    ytick=data,
+    xmin=0, xmax=15,
+    bar width=15pt,
+    nodes near coords,
+    nodes near coords align={horizontal},
+]
+\addplot[fill=red!60] coordinates {
+    (12.56, Chỉ Image)
+    (9.11, Chỉ Text)
+    (4.15, w/o Graph)
+    (3.00, w/o HAM)
+    (2.45, w/o CAM)
+    (2.09, w/o SCFM)
+};
+\end{axis}
+\end{tikzpicture}
+\caption{Ablation Study: Mức độ giảm F1 khi loại bỏ từng thành phần}
+\label{fig:ablation_chart}
+\end{figure}
+
+%=====================================================
+\section{Bảng Siêu Tham Số}
+%=====================================================
+
+\begin{table}[H]
+\centering
+\caption{Siêu tham số của CrisisSpot}
+\label{tab:hyperparams}
+\begin{tabular}{l|c|l}
+\toprule
+\textbf{Tham số} & \textbf{Giá trị} & \textbf{Ghi chú} \\
+\midrule
+Learning Rate & $5 \times 10^{-5}$ & Tối ưu từ $5 \times 10^{-1}$ đến $5 \times 10^{-7}$ \\
+Epochs & 100 & Thử nghiệm: 50, 80, 100, 120 \\
+Batch Size & 32 & Thử nghiệm: 16, 32, 64, 128 \\
+Dropout & 0.2 & Tối ưu từ 0.2-0.5 \\
+Optimizer & Adam & \\
+$T_{HAM}$ & 1.65 & Nhiệt độ HAM \\
+$T_{CAM}$ & 0.75 & Nhiệt độ CAM \\
+Graph Threshold & 0.75 & Ngưỡng tương đồng \\
+BERT dim & 768 & BERT-base \\
+ResNet dim & 1024 & ResNet-50 \\
+Shared dim & 128 & Không gian dùng chung \\
+MALN output & 128 & \\
+SHLN output & 8 & \\
+JFLN output & 64 & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%=====================================================
+\section{Bảng Đặc Trưng Ngữ Cảnh Xã Hội Chi Tiết}
+%=====================================================
+
+\begin{table}[H]
+\centering
+\caption{Chi tiết 21 chiều đặc trưng ngữ cảnh xã hội}
+\label{tab:social_detail}
+\begin{tabular}{l|l|c|l}
+\toprule
+\textbf{Nhóm} & \textbf{Đặc trưng} & \textbf{Chiều} & \textbf{Mô tả} \\
+\midrule
+\multirow{5}{*}{SentiQuotient} 
+& Positive & 1 & Tỷ lệ từ tích cực \\
+& Negative & 1 & Tỷ lệ từ tiêu cực \\
+& Neutral & 1 & Tỷ lệ từ trung tính \\
+\midrule
+\multirow{11}{*}{EmoQuotient}
+& Anger & 1 & Giận dữ \\
+& Anticipation & 1 & Kỳ vọng \\
+& Disgust & 1 & Ghê tởm \\
+& Fear & 1 & Sợ hãi \\
+& Joy & 1 & Vui vẻ \\
+& Sadness & 1 & Buồn bã \\
+& Surprise & 1 & Ngạc nhiên \\
+& Trust & 1 & Tin tưởng \\
+& Negative & 1 & Tổng tiêu cực \\
+& Positive & 1 & Tổng tích cực \\
+& Other & 1 & Khác \\
+\midrule
+CIS & Crisis Score & 1 & Điểm khủng hoảng \\
+\midrule
+\multirow{5}{*}{UEM}
+& Followers & 1 & Số người theo dõi \\
+& Following & 1 & Số đang theo dõi \\
+& Tweets & 1 & Tổng số tweet \\
+& Likes & 1 & Số lượt thích \\
+& Retweets & 1 & Số lượt chia sẻ \\
+\midrule
+UIS & User Info Score & 1 & Điểm tin cậy người dùng \\
+\midrule
+\multicolumn{2}{l|}{\textbf{Tổng}} & \textbf{21} & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%=====================================================
+\section{Kết Quả Trên TSEqD}
+%=====================================================
+
+\begin{table}[H]
+\centering
+\caption{Kết quả trên tập dữ liệu TSEqD (Động đất Thổ Nhĩ Kỳ-Syria 2023)}
+\label{tab:tseqd}
+\begin{tabular}{l|cccc|cccc}
+\toprule
+\multirow{2}{*}{\textbf{Phương pháp}} & \multicolumn{4}{c|}{\textbf{Thông tin}} & \multicolumn{4}{c}{\textbf{Nhân đạo}} \\
+& Acc & P & R & F1 & Acc & P & R & F1 \\
+\midrule
+BERT & 78.45 & 79.12 & 80.45 & 79.79 & 68.23 & 69.45 & 71.23 & 70.34 \\
+ResNet & 72.34 & 73.56 & 74.89 & 74.22 & 62.45 & 63.78 & 65.12 & 64.45 \\
+ViLBERT & 81.23 & 82.45 & 83.78 & 83.08 & 74.56 & 75.89 & 76.89 & 76.36 \\
+DMCC & 85.67 & 86.45 & 87.67 & 87.03 & 76.78 & 77.45 & 78.56 & 77.96 \\
+\textbf{CrisisSpot} & \textbf{88.89} & \textbf{89.56} & \textbf{90.45} & \textbf{90.01} & \textbf{80.45} & \textbf{81.34} & \textbf{82.78} & \textbf{82.03} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%=====================================================
+\section{Biểu Đồ Radar So Sánh}
+%=====================================================
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}
+\begin{polaraxis}[
+    title={\textbf{So sánh đa chiều CrisisSpot vs Baselines}},
+    xtick={0, 60, 120, 180, 240, 300},
+    xticklabels={Accuracy, Precision, Recall, F1, Inference Speed, Generalization},
+    ymin=0, ymax=100,
+    legend style={at={(1.3,0.5)}, anchor=west},
+]
+\addplot[thick, blue, mark=*] coordinates {
+    (0, 97.58) (60, 97.89) (120, 98.12) (180, 98.23) (240, 85) (300, 90) (360, 97.58)
+};
+\addplot[thick, red, mark=square*] coordinates {
+    (0, 95.23) (60, 95.67) (120, 96.12) (180, 96.47) (240, 75) (300, 82) (360, 95.23)
+};
+\addplot[thick, green, mark=triangle*] coordinates {
+    (0, 93.12) (60, 94.23) (120, 95.12) (180, 94.85) (240, 60) (300, 78) (360, 93.12)
+};
+\legend{CrisisSpot, DMCC, ViLBERT}
+\end{polaraxis}
+\end{tikzpicture}
+\caption{Biểu đồ radar so sánh đa chiều các phương pháp}
+\label{fig:radar}
+\end{figure}
+
+%=====================================================
+\section{Sơ Đồ Mạng Kết Hợp MFN}
+%=====================================================
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=0.8, every node/.style={font=\small}]
+    % MALN
+    \draw[thick, fill=blue!20] (0,4) rectangle (3,6);
+    \node[align=center] at (1.5,5) {\textbf{MALN}\\FAV → 128d\\Dense layers};
+    
+    % SHLN
+    \draw[thick, fill=green!20] (0,1) rectangle (3,3);
+    \node[align=center] at (1.5,2) {\textbf{SHLN}\\SHV → 8d\\Dense layers};
+    
+    % GFLN
+    \draw[thick, fill=orange!20] (0,-2) rectangle (3,0);
+    \node[align=center] at (1.5,-1) {\textbf{GFLN}\\Graph → 128d\\Dense layers};
+    
+    % Concatenate
+    \draw[thick, fill=yellow!20] (5,1) rectangle (8,3);
+    \node[align=center] at (6.5,2) {\textbf{Concat}\\264d};
+    
+    \draw[->, thick] (3,5) -- (4,5) -- (4,2.5) -- (5,2.5);
+    \draw[->, thick] (3,2) -- (5,2);
+    \draw[->, thick] (3,-1) -- (4,-1) -- (4,1.5) -- (5,1.5);
+    
+    % JFLN
+    \draw[thick, fill=purple!20] (10,1) rectangle (13,3);
+    \node[align=center] at (11.5,2) {\textbf{JFLN}\\264d → 64d\\Dense + ReLU};
+    
+    \draw[->, thick] (8,2) -- (10,2);
+    
+    % Prediction
+    \draw[thick, fill=red!20] (15,1) rectangle (18,3);
+    \node[align=center] at (16.5,2) {\textbf{Prediction}\\Softmax/Sigmoid};
+    
+    \draw[->, thick] (13,2) -- (15,2);
+    
+    % Output
+    \node at (19.5,2) {Class};
+    \draw[->, thick] (18,2) -- (19,2);
+\end{tikzpicture}
+\caption{Kiến trúc Mạng Kết Hợp Đa Phương Thức (MFN)}
+\label{fig:mfn}
+\end{figure}
+
+%=====================================================
+\section{Timeline Phát Triển}
+%=====================================================
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=0.9]
+    % Timeline
+    \draw[thick, ->] (0,0) -- (16,0);
+    
+    % Points
+    \foreach \x/\label in {2/2018, 5/2020, 8/2022, 11/2024, 14/2026} {
+        \draw[thick] (\x,-0.2) -- (\x,0.2);
+        \node[below] at (\x,-0.3) {\label};
+    }
+    
+    % Events
+    \node[above, align=center, font=\footnotesize] at (2,0.5) {CrisisMMD\\Dataset};
+    \node[above, align=center, font=\footnotesize] at (5,0.5) {ViLBERT\\Multimodal};
+    \node[above, align=center, font=\footnotesize] at (8,0.5) {DMCC\\Framework};
+    \node[above, align=center, font=\footnotesize, text=red] at (11,0.5) {\textbf{CrisisSpot}\\IDEA+Graph};
+    \node[above, align=center, font=\footnotesize, text=blue] at (14,0.5) {LLM\\Integration?};
+\end{tikzpicture}
+\caption{Timeline phát triển nghiên cứu phân loại thảm họa đa phương thức}
+\label{fig:timeline}
+\end{figure}
+
+\end{document}
