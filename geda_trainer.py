@@ -65,13 +65,6 @@ def extract_clip_features(dataset_path, task="task1", split="train", device="cud
 
     cache_img = f"{cache_dir}/{task}_{split}_img.npy"
     cache_txt = f"{cache_dir}/{task}_{split}_txt.npy"
-    cache_lbl = f"{cache_dir}/{task}_{split}_labels.npy"
-
-    if os.path.exists(cache_img) and os.path.exists(cache_txt):
-        print(f"  Loading cached features: {task}/{split}")
-        return np.load(cache_img), np.load(cache_txt), np.load(cache_lbl)
-
-    print(f"  Extracting CLIP features: {task}/{split}")
 
     # Map task to TSV file
     task_map = {
@@ -93,6 +86,21 @@ def extract_clip_features(dataset_path, task="task1", split="train", device="cud
     if tsv_path is None:
         raise FileNotFoundError(f"TSV not found in: {candidates}")
 
+    if os.path.exists(cache_img) and os.path.exists(cache_txt):
+        print(f"  Loading cached features: {task}/{split}")
+        img_features = np.load(cache_img)
+        txt_features = np.load(cache_txt)
+        
+        # WE MUST ALWAYS LOAD LABELS FROM TSV DIRECTLY TO ENSURE ACCURACY AND STRING TYPE
+        import pandas as pd
+        df_cache = pd.read_csv(tsv_path, sep='\t')
+        lbl_col = 'label' if 'label' in df_cache.columns else [c for c in df_cache.columns if 'label' in c.lower()][0]
+        labels = df_cache[lbl_col].astype(str).values
+        
+        return img_features, txt_features, labels
+
+    print(f"  Extracting CLIP features: {task}/{split}")
+
     # Load CLIP
     model, _, preprocess = open_clip.create_model_and_transforms(
         "ViT-B-32", pretrained="laion2b_s34b_b79k"
@@ -108,11 +116,12 @@ def extract_clip_features(dataset_path, task="task1", split="train", device="cud
     img_col = [c for c in df.columns if 'image' in c.lower() and 'label' not in c.lower()][0]
     txt_col = [c for c in df.columns if 'text' in c.lower() and 'label' not in c.lower() and 'llava' not in c.lower()][0]
     # Use 'label' column (NOT 'label_text_image' which is all same value)
+    # Identify label column robustly
     lbl_col = 'label' if 'label' in df.columns else [c for c in df.columns if 'label' in c.lower()][0]
-
-    # Label encoding
-    label_map = {lbl: i for i, lbl in enumerate(sorted(df[lbl_col].unique()))}
-    labels = df[lbl_col].map(label_map).values
+    # In Task 1 we know label_text_image is messed up, so 'label' is safer.
+    
+    # We return the RAW string strings. We DO NOT encode them independently per split.
+    labels = df[lbl_col].astype(str).values
 
     img_features = []
     txt_features = []
@@ -154,9 +163,7 @@ def extract_clip_features(dataset_path, task="task1", split="train", device="cud
 
     np.save(cache_img, img_features)
     np.save(cache_txt, txt_features)
-    np.save(cache_lbl, labels)
-
-    print(f"  Extracted {len(labels)} samples, {len(label_map)} classes")
+    # We DO NOT save `cache_lbl` as it causes mismatch issues across splits later.
     return img_features, txt_features, labels
 
 
@@ -499,13 +506,22 @@ def run_geda_experiment(
     print(f"{'='*60}")
 
     # --- 1. Extract features ---
-    train_img, train_txt, train_labels = extract_clip_features(dataset_path, task, "train", device)
-    test_img, test_txt, test_labels = extract_clip_features(dataset_path, task, "test", device)
+    train_img, train_txt, train_labels_str = extract_clip_features(dataset_path, task, "train", device)
+    test_img, test_txt, test_labels_str = extract_clip_features(dataset_path, task, "test", device)
+
+    # --- 1.5 Encode labels GLOBALLY ---
+    all_labels_str = np.concatenate([train_labels_str, test_labels_str], axis=0)
+    from sklearn.preprocessing import LabelEncoder
+    le = LabelEncoder()
+    all_labels = le.fit_transform(all_labels_str)
+    
+    n_train = len(train_labels_str)
+    train_labels = all_labels[:n_train]
+    test_labels = all_labels[n_train:]
 
     # --- 2. PCA ---
     all_img = np.concatenate([train_img, test_img], axis=0)
     all_txt = np.concatenate([train_txt, test_txt], axis=0)
-    all_labels = np.concatenate([train_labels, test_labels], axis=0)
 
     pca_img = PCA(n_components=min(pca_dim, all_img.shape[1]), random_state=seed)
     pca_txt = PCA(n_components=min(pca_dim, all_txt.shape[1]), random_state=seed)
@@ -534,16 +550,15 @@ def run_geda_experiment(
     # --- 5. Create model ---
     # Num classes
     num_classes = len(np.unique(all_labels))
-    task_num_classes = {"task1": 2, "task2": 6, "task3": 3}
-    nc = task_num_classes.get(task, num_classes)
+    nc = num_classes # Force exactly the right number of classes discovered!
 
     model = GEDAModel(
         img_dim=all_img_r.shape[1],
         txt_dim=all_txt_r.shape[1],
         hidden_dim=hidden_dim,
-        num_classes_task1=nc if task == "task1" else 2,
-        num_classes_task2=nc if task == "task2" else 6,
-        num_classes_task3=nc if task == "task3" else 3,
+        num_classes_task1=nc if task == "task1" else 2, # Use nc for the current task, default to 2 for others if MTL is off
+        num_classes_task2=nc if task == "task2" else 2,
+        num_classes_task3=nc if task == "task3" else 2,
         dropout=0.3,
         use_graph=use_graph,
         use_attention=use_attention,
