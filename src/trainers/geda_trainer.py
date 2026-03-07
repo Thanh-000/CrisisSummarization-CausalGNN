@@ -127,7 +127,15 @@ def extract_clip_features(dataset_path, task="task1", split="train", device="cud
 
     # Columns: event_name, tweet_id, image_path, tweet_text, label, ...
     img_candidates = [c for c in df.columns if ('image' in c.lower() or 'img' in c.lower()) and 'label' not in c.lower() and 'id' not in c.lower()]
-    img_col = 'image' if 'image' in df.columns else ('image_path' if 'image_path' in df.columns else img_candidates[0])
+    
+    img_col = None
+    for priority_col in ['image_path', 'image_url', 'image_info', 'image']:
+        if priority_col in df.columns:
+            img_col = priority_col
+            break
+    if img_col is None and len(img_candidates) > 0:
+        img_col = img_candidates[-1]
+        
     txt_col = [c for c in df.columns if 'text' in c.lower() and 'label' not in c.lower() and 'llava' not in c.lower()][0]
     # Use 'label' column (NOT 'label_text_image' which is all same value)
     # Identify label column robustly
