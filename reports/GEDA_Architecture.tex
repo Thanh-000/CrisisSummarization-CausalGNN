@@ -1,0 +1,104 @@
+\documentclass[12pt,a4paper]{article}
+
+% ===== PACKAGES =====
+\usepackage[utf8]{inputenc}
+\usepackage[vietnamese]{babel}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, calc, fit, backgrounds}
+\usepackage{geometry}
+\geometry{left=2cm, right=2cm, top=2cm, bottom=2cm}
+
+% ===== COLORS =====
+\definecolor{primary}{HTML}{1A237E}
+\definecolor{secondary}{HTML}{0D47A1}
+\definecolor{accent}{HTML}{00838F}
+\definecolor{highlight}{HTML}{FF6F00}
+\definecolor{lightbg}{HTML}{E8EAF6}
+\definecolor{gnncolor}{HTML}{2E7D32}
+
+\begin{document}
+\thispagestyle{empty}
+\begin{center}
+{\Large\bfseries\color{primary} Sơ đồ Kiến trúc Hệ thống GEDA} \\[0.2cm]
+{\small (Graph-Enhanced Differential Attention)}\\[1cm]
+\end{center}
+
+\begin{figure}[h!]
+\centering
+\resizebox{\textwidth}{!}{
+\begin{tikzpicture}[
+  node distance=1.5cm and 2.5cm,
+  module/.style={rectangle, draw=primary, fill=lightbg, text width=4.5cm, minimum height=1cm, align=center, rounded corners=3pt, font=\small},
+  gnn/.style={rectangle, draw=gnncolor, fill=gnncolor!10, text width=4.5cm, minimum height=1cm, align=center, rounded corners=3pt, font=\small, thick},
+  attn/.style={rectangle, draw=accent, fill=accent!10, text width=4.5cm, minimum height=1cm, align=center, rounded corners=3pt, font=\small, thick},
+  data/.style={rectangle, draw=secondary, fill=white, text width=2.5cm, minimum height=0.8cm, align=center, rounded corners=15pt, font=\small},
+  arrow/.style={-{Stealth[length=3mm]}, thick, color=primary},
+  gnnarrow/.style={-{Stealth[length=3mm]}, thick, color=gnncolor},
+  attnarrow/.style={-{Stealth[length=3mm]}, thick, color=accent},
+  groupbox/.style={rectangle, draw=gray, fill=gray!5, inner sep=12pt, rounded corners=5pt, dashed}
+]
+
+  % Stage 0: Inputs (CLIP Features)
+  \node[data] (img_in) {CLIP Image\\Features ($h_{img}$)};
+  \node[data, right=6cm of img_in] (txt_in) {CLIP Text\\Features ($h_{txt}$)};
+
+  % Stage 1: KNN Graph Construction
+  \node[module, below=1cm of img_in] (knn_img) {KNN Graph\\($\mathcal{G}_{V}$)};
+  \node[module, below=1cm of txt_in] (knn_txt) {KNN Graph\\($\mathcal{G}_{T}$)};
+
+  % Stage 2: GraphSAGE
+  \node[gnn, below=1cm of knn_img] (gnn_img) {GraphSAGE Convolution\\Trích xuất lân cận ($h_{img}'$)};
+  \node[gnn, below=1cm of knn_txt] (gnn_txt) {GraphSAGE Convolution\\Trích xuất lân cận ($h_{txt}'$)};
+
+  \draw[arrow] (img_in) -- (knn_img);
+  \draw[arrow] (txt_in) -- (knn_txt);
+  \draw[arrow] (knn_img) -- (gnn_img);
+  \draw[arrow] (knn_txt) -- (gnn_txt);
+
+  % Stage 3: Self-Attention
+  \node[attn, below=1cm of gnn_img] (self_img) {Self-Attention\\Filter nhiễu nội bộ ($f_V$)};
+  \node[attn, below=1cm of gnn_txt] (self_txt) {Self-Attention\\Filter nhiễu nội bộ ($f_T$)};
+
+  \draw[gnnarrow] (gnn_img) -- (self_img);
+  \draw[gnnarrow] (gnn_txt) -- (self_txt);
+
+  % Stage 4: Guided Cross-Attention
+  \node[attn, text width=11.5cm, below=1.5cm of $(self_img)!0.5!(self_txt)$] (gca) {Guided Cross-Attention (GCA)\\Hòa trộn Image & Text ($C_{VT}$)};
+
+  \draw[attnarrow] (self_img) |- (gca);
+  \draw[attnarrow] (self_txt) |- (gca);
+
+  % Stage 5: Differential Attention
+  \node[module, draw=highlight, fill=highlight!10, thick, text width=11.5cm, below=1cm of gca] (diff) {Adaptive Differential Attention\\$\text{Diff} = \text{Attn}_1 - \lambda \cdot \text{Attn}_2$ (Triệt tiêu nhiễu phổ biến)};
+
+  \draw[attnarrow] (gca) -- (diff);
+
+  % Stage 6: Multi-task Classification Heads
+  \node[data, draw=success, below=1.5cm of diff, xshift=-4cm] (head_info) {Informativeness\\(Binary)};
+  \node[data, draw=success, below=1.5cm of diff] (head_human) {Humanitarian\\(Multi-class)};
+  \node[data, draw=success, below=1.5cm of diff, xshift=4cm] (head_damage) {Damage\\(Multi-class)};
+
+  \draw[arrow] (diff) -- (head_info);
+  \draw[arrow] (diff) -- (head_human);
+  \draw[arrow] (diff) -- (head_damage);
+
+  % Background Boundaries
+  \begin{scope}[on background layer]
+    \node[groupbox, fit=(knn_img)(knn_txt)(gnn_img)(gnn_txt), label={[font=\bfseries\color{gray}, anchor=north east]north east:Pha 1: Đồ thị láng giềng (GNN)}] {};
+    \node[groupbox, fit=(self_img)(self_txt)(gca)(diff), label={[font=\bfseries\color{gray}, anchor=north east]north east:Pha 2: Chuỗi Attention Đa Phương Thức}] {};
+  \end{scope}
+
+\end{tikzpicture}
+}
+\end{figure}
+
+\vspace{1cm}
+\begin{itemize}
+    \item \textbf{Pha 1 (GNN):} Các vector đặc trưng từ bức ảnh và văn bản gốc (được xuất ra bởi CLIP) sẽ dùng thuật toán K-Nearest Neighbors (KNN) để lập các liên kết trong batch. \textit{GraphSAGE} tận dụng cấu trúc này để làm mịn (smooth) và bổ sung cho các mẫu thiếu ngữ cảnh.
+    \item \textbf{Pha 2 (Attention Stack):} Đi qua 3 tần: (1) \textit{Self-Attention} để làm nổi bật thông tin trong chính phương thức đó, (2) \textit{Guided Cross-Attention} trộn hai nhánh để tạo ra đặc trưng kết hợp $C_{VT}$, và (3) \textit{Differential Attention} — đóng vai trò trừ khử (subtract) ra nhiễu nền chung (common noise) với một tham số thích nghi $\lambda$.
+    \item \textbf{Đầu ra:} Hệ thống chẻ làm 3 Head đa tác vụ song song để giải quyết Informativeness, Humanitarian, và Damage Assessment.
+\end{itemize}
+
+\end{document}

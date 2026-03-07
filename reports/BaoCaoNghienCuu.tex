@@ -1,0 +1,915 @@
+\documentclass[12pt,a4paper]{article}
+
+% ===== PACKAGES =====
+\usepackage[utf8]{inputenc}
+\usepackage[vietnamese]{babel}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{xcolor}
+\usepackage{colortbl}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{geometry}
+\usepackage{fancyhdr}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, calc, fit, backgrounds}
+\usepackage{tcolorbox}
+\tcbuselibrary{skins,breakable}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{algorithmic}
+\usepackage{algorithm}
+\usepackage{float}
+\usepackage{titlesec}
+\usepackage{tocloft}
+
+% ===== PAGE SETUP =====
+\geometry{left=2.5cm, right=2.5cm, top=2.5cm, bottom=2.5cm}
+\setlength{\parindent}{1.2em}
+\setlength{\parskip}{0.4em}
+
+% ===== COLORS =====
+\definecolor{primary}{HTML}{1A237E}
+\definecolor{secondary}{HTML}{0D47A1}
+\definecolor{accent}{HTML}{00838F}
+\definecolor{highlight}{HTML}{FF6F00}
+\definecolor{success}{HTML}{2E7D32}
+\definecolor{warning}{HTML}{E65100}
+\definecolor{lightbg}{HTML}{E8EAF6}
+\definecolor{lightaccent}{HTML}{E0F7FA}
+\definecolor{tableheader}{HTML}{283593}
+\definecolor{tablerow1}{HTML}{F5F5F5}
+\definecolor{tablerow2}{HTML}{FFFFFF}
+
+% ===== HEADER/FOOTER =====
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\color{primary}\textit{Báo Cáo Nghiên Cứu — CrisisSpot}}
+\fancyhead[R]{\small\color{primary}\textit{Multimodal Crisis Classification}}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.5pt}
+\renewcommand{\headrule}{\hbox to\headwidth{\color{primary}\leaders\hrule height \headrulewidth\hfill}}
+
+% ===== SECTION STYLING =====
+\titleformat{\section}{\Large\bfseries\color{primary}}{\thesection}{1em}{}[\color{primary}\titlerule]
+\titleformat{\subsection}{\large\bfseries\color{secondary}}{\thesubsection}{1em}{}
+\titleformat{\subsubsection}{\normalsize\bfseries\color{accent}}{\thesubsubsection}{1em}{}
+
+% ===== TCOLORBOX STYLES =====
+\newtcolorbox{insightbox}[1][]{
+  enhanced, breakable,
+  colback=lightbg, colframe=primary,
+  fonttitle=\bfseries\color{white},
+  title=#1, coltitle=white, colbacktitle=primary,
+  boxrule=0.8pt, arc=3pt,
+  left=8pt, right=8pt, top=6pt, bottom=6pt
+}
+
+\newtcolorbox{noveltybox}[1][]{
+  enhanced, breakable,
+  colback=lightaccent, colframe=accent,
+  fonttitle=\bfseries\color{white},
+  title=#1, coltitle=white, colbacktitle=accent,
+  boxrule=0.8pt, arc=3pt,
+  left=8pt, right=8pt, top=6pt, bottom=6pt
+}
+
+\newtcolorbox{warningbox}[1][]{
+  enhanced, breakable,
+  colback=orange!5, colframe=warning,
+  fonttitle=\bfseries\color{white},
+  title=#1, coltitle=white, colbacktitle=warning,
+  boxrule=0.8pt, arc=3pt,
+  left=8pt, right=8pt, top=6pt, bottom=6pt
+}
+
+% ===== HYPERREF =====
+\hypersetup{
+  colorlinks=true, linkcolor=primary, urlcolor=accent, citecolor=secondary,
+  pdftitle={Multimodal Crisis Classification Research Report},
+  pdfauthor={CrisisSpot Research Team}
+}
+
+% ===== DOCUMENT =====
+\begin{document}
+
+% ========== TITLE PAGE ==========
+\begin{titlepage}
+\begin{center}
+\vspace*{1cm}
+
+\begin{tikzpicture}
+  \fill[primary] (0,0) rectangle (\textwidth, 0.4);
+\end{tikzpicture}
+
+\vspace{1.5cm}
+{\Huge\bfseries\color{primary} Phân Tích Kiến Trúc \&\\[0.3cm] Chiến Lược Nghiên Cứu}
+
+\vspace{0.8cm}
+{\Large\color{secondary} Multimodal Natural Disaster Classification\\trên Mạng Xã Hội}
+
+\vspace{1.2cm}
+\begin{tikzpicture}
+  \fill[accent] (0,0) rectangle (8cm, 0.15);
+\end{tikzpicture}
+
+\vspace{1.2cm}
+{\large\color{primary}\textbf{Dựa trên 2 Paper:}}\\[0.5cm]
+{\normalsize
+\textit{Paper 1: Multimodal Classification of Social Media Disaster Posts\\With Graph Neural Networks and Few-Shot Learning}\\
+\textcolor{gray}{J. Nascimento, P. Bestagini, A. Rocha — IEEE Access 2025}\\[0.4cm]
+\textit{Paper 2: Differential Attention for Multimodal\\Crisis Event Analysis}\\
+\textcolor{gray}{N. Munia, J. Zhu, O. Nasraoui, A.-A.-Z. Imran — CVPRw MMFM 2025}
+}
+
+\vspace{1.5cm}
+{\large Dự án: \textbf{CrisisSummarization}}\\[0.3cm]
+{\normalsize Ngày: 03/03/2026}
+
+\vfill
+\begin{tikzpicture}
+  \fill[primary] (0,0) rectangle (\textwidth, 0.4);
+\end{tikzpicture}
+\end{center}
+\end{titlepage}
+
+% ========== TOC ==========
+\tableofcontents
+\newpage
+
+% ========== SECTION 1 ==========
+\section{Giới Thiệu}
+
+\subsection{Bối Cảnh Nghiên Cứu}
+
+Thảm họa thiên nhiên—bão, động đất, lũ lụt, cháy rừng—gây ra thiệt hại nghiêm trọng về người và tài sản trên toàn cầu hàng năm. Trong các tình huống khẩn cấp, mạng xã hội trở thành nguồn thông tin thời gian thực quan trọng nhất để nắm bắt tình hình thực địa. Tuy nhiên, khối lượng dữ liệu khổng lồ—bao gồm cả văn bản lẫn hình ảnh—cùng với tỷ lệ nhiễu cao khiến việc phân loại tự động trở thành bài toán cấp thiết.
+
+Báo cáo này phân tích chi tiết hai công trình nghiên cứu tiên tiến trong lĩnh vực \textbf{Multimodal Natural Disaster Classification}, từ đó đề xuất các hướng nghiên cứu mới có tính đột phá.
+
+\begin{insightbox}[Phạm vi nghiên cứu]
+Nghiên cứu này tập trung vào \textbf{thảm họa thiên nhiên} (natural disasters), bao gồm: bão (hurricanes), động đất (earthquakes), lũ lụt (floods), và cháy rừng (wildfires). Các loại khủng hoảng phi thiên nhiên (biểu tình chính trị, dịch bệnh, tấn công mạng) nằm ngoài phạm vi.
+\end{insightbox}
+
+\subsection{Bài Toán Chung}
+
+Cả hai paper đều giải quyết \textbf{cùng một bài toán cốt lõi}:
+
+\begin{insightbox}[Bài Toán — Natural Disaster Classification]
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Input:} Bài đăng mạng xã hội đa phương thức (text + image) liên quan đến thảm họa thiên nhiên
+  \item \textbf{Output:} Nhãn phân loại (informative/non-informative, humanitarian, damage severity)
+  \item \textbf{Context:} Tình huống thảm họa thiên nhiên thực tế (bão, động đất, lũ lụt, cháy rừng)
+  \item \textbf{Constraint:} Dữ liệu gán nhãn cực kỳ hạn chế (few-shot: 50--500 mẫu)
+\end{itemize}
+\end{insightbox}
+
+\subsection{Dataset: CrisisMMD v2.0}
+
+Dataset chính sử dụng trong cả 2 paper là \textbf{CrisisMMD v2.0}, bao gồm 20,000 tweets được gán nhãn từ 7 thảm họa thiên nhiên lớn năm 2017:
+
+\begin{table}[H]
+\centering
+\caption{7 sự kiện thảm họa thiên nhiên trong CrisisMMD v2.0}
+\rowcolors{2}{tablerow1}{tablerow2}
+\begin{tabular}{clll}
+\toprule
+\rowcolor{tableheader}
+\textcolor{white}{\#} & \textcolor{white}{\textbf{Sự kiện}} & \textcolor{white}{\textbf{Loại}} & \textcolor{white}{\textbf{Thời gian}} \\
+\midrule
+1 & Hurricane Harvey & Bão & 08/2017 \\
+2 & Hurricane Irma & Bão & 09/2017 \\
+3 & Hurricane Maria & Bão & 09/2017 \\
+4 & Mexico Earthquake & Động đất & 09/2017 \\
+5 & Iraq-Iran Earthquake & Động đất & 11/2017 \\
+6 & California Wildfires & Cháy rừng & 10/2017 \\
+7 & Sri Lanka Floods & Lũ lụt & 05/2017 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{warningbox}[Lưu ý về dataset 7Sept]
+Paper 1 (GNN) cũng đánh giá trên bộ dữ liệu \textbf{7Sept} (biểu tình chính trị Brazil). Tuy nhiên, đây \textit{``không phải là một bộ dữ liệu thảm họa''} và Task 2, 3 không được áp dụng trên 7Sept. Do đó, \textbf{7Sept nằm ngoài phạm vi} nghiên cứu này. Chúng tôi chỉ tập trung vào CrisisMMD v2.0 với 3 tasks đầy đủ.
+\end{warningbox}
+
+\subsection{Thách Thức Chung Được Nhận Diện}
+
+\begin{table}[H]
+\centering
+\caption{Thách thức chung được cả 2 paper nhận diện}
+\label{tab:challenges}
+\rowcolors{2}{tablerow1}{tablerow2}
+\begin{tabularx}{\textwidth}{>{\bfseries}l X X}
+\toprule
+\rowcolor{tableheader}
+\textcolor{white}{\textbf{Thách thức}} & \textcolor{white}{\textbf{Paper 1 (GNN)}} & \textcolor{white}{\textbf{Paper 2 (DiffAttn)}} \\
+\midrule
+Dữ liệu phức tạp & \textit{``làm tăng độ phức tạp cho cách dữ liệu này nên được biểu diễn''} & \textit{``tương tác phức tạp giữa các phương thức khác nhau''} \\
+Thiếu nhãn & Few-shot: 50--500 mẫu & Few-shot: 50--250 mẫu \\
+Nhiễu social media & Graph propagation consensus & \textit{``sự mất cân bằng phương thức và mức độ nhiễu khác nhau''} \\
+Modality gap & \textit{``làm thế nào thu được vector duy nhất đại diện cho các phương thức''} & \textit{``khó khăn trong căn chỉnh nguồn dữ liệu không đồng nhất''} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+% ========== SECTION 2 ==========
+\section{Kiến Trúc Hệ Thống — Paper 1: GNN Semi-Supervised}
+
+\subsection{Tổng Quan Pipeline}
+
+Paper 1 thiết kế pipeline gồm \textbf{5 algorithms} tuần tự:
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  node distance=1.2cm,
+  block/.style={rectangle, draw=primary, fill=lightbg, text width=5.5cm, minimum height=1.2cm, align=center, rounded corners=3pt, font=\small},
+  arrow/.style={-{Stealth[length=3mm]}, thick, color=primary}
+]
+  \node[block] (a1) {\textbf{Algorithm 1}\\Feature Extraction (CLIP)};
+  \node[block, below=of a1] (a2) {\textbf{Algorithm 2}\\PCA Reduction $\rightarrow$ 256 dims};
+  \node[block, below=of a2] (a3) {\textbf{Algorithm 3}\\k-NN Graph ($k$=16, cosine sim)};
+  \node[block, below=of a3] (a4) {\textbf{Algorithm 4}\\GraphSAGE Training + Shuffle Split};
+  \node[block, below=of a4] (a5) {\textbf{Algorithm 5}\\Inference (Full Graph + Test)};
+
+  \draw[arrow] (a1) -- (a2);
+  \draw[arrow] (a2) -- (a3);
+  \draw[arrow] (a3) -- (a4);
+  \draw[arrow] (a4) -- (a5);
+\end{tikzpicture}
+\caption{Pipeline 5 algorithms của Paper 1 (GNN)}
+\label{fig:gnn-pipeline}
+\end{figure}
+
+\subsection{Chi Tiết Kiến Trúc}
+
+\subsubsection{Feature Extraction (CLIP Multilingual)}
+Sử dụng CLIP phiên bản \textbf{ViT, multilingual}, pre-trained trên WebImageText (WIT):
+\begin{quote}
+\textit{``We opted for the version based on Visual Transformers (ViT) and pre-trained on WebImageText (WIT). Furthermore, we used the multilingual version of CLIP.''}
+\end{quote}
+
+\subsubsection{PCA Reduction}
+Giảm chiều từ CLIP embeddings xuống \textbf{256 dimensions} cho mỗi modality. Autoencoder cũng được thử nhưng PCA cho kết quả tốt hơn. Ý nghĩa: giảm complexity từ $O(n^2 d)$ xuống $O(n^2 e)$ với $e \ll d$.
+
+\subsubsection{Graph Construction (k-NN)}
+Xây dựng đồ thị undirected với $k$=16 neighbors dựa trên \textbf{cosine similarity} trên concatenated reduced features. Mỗi post = 1 node; cả labeled và unlabeled nodes đều tham gia.
+
+\subsubsection{Shuffle Split Training}
+\begin{insightbox}[Kỹ thuật Shuffle Split — Sáng tạo chính]
+Mỗi epoch, labeled data được xáo trộn ngẫu nhiên:
+\begin{itemize}
+  \item \textbf{40\%} $\rightarrow$ pseudo-train (tính loss, backprop)
+  \item \textbf{60\%} $\rightarrow$ pseudo-val (early stopping)
+\end{itemize}
+Early stopping dựa trên \textbf{Harmonic Mean} của $F1_{\text{train}}$ và $F1_{\text{val}}$, tránh overfitting trên tập labeled cực nhỏ.
+\end{insightbox}
+
+\subsection{Fusion Strategies}
+
+\begin{table}[H]
+\centering
+\caption{So sánh 3 chiến lược Fusion trong Paper 1}
+\rowcolors{2}{tablerow1}{tablerow2}
+\begin{tabular}{llc}
+\toprule
+\rowcolor{tableheader}
+\textcolor{white}{\textbf{Strategy}} & \textcolor{white}{\textbf{Mô tả}} & \textcolor{white}{\textbf{Kết quả}} \\
+\midrule
+Early Fusion & Concat img+text $\rightarrow$ 2 GNN layers + 1 linear & Trung bình \\
+Middle Fusion & 2 GNN song song $\rightarrow$ combine $\rightarrow$ 1 GNN & Trung bình \\
+\textbf{Late Fusion} $\star$ & \textbf{2 GraphSAGE riêng $\rightarrow$ concat $\rightarrow$ final} & \textbf{Tốt nhất} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ========== SECTION 3 ==========
+\section{Kiến Trúc Hệ Thống — Paper 2: Differential Attention}
+
+\subsection{Tổng Quan Pipeline}
+
+Paper 2 sử dụng \textbf{attention-based fusion} gồm 3 tầng progressive refinement:
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  node distance=1.1cm,
+  block/.style={rectangle, draw=accent, fill=lightaccent, text width=6cm, minimum height=1.1cm, align=center, rounded corners=3pt, font=\small},
+  arrow/.style={-{Stealth[length=3mm]}, thick, color=accent}
+]
+  \node[block] (kf) {\textbf{Knowledge Fusion}\\LLaVA: $x''_T = \text{concat}(x_T, \text{VLM}(I, x_I))$};
+  \node[block, below=of kf] (fe) {\textbf{Feature Extraction}\\$f_I = \text{CLIP}_{\text{image}}(x_I)$, $f_T = \text{CLIP}_{\text{text}}(x''_T)$ \textit{(frozen)}};
+  \node[block, below=of fe] (sa) {\textbf{Self-Attention}\\$\text{softmax}(VV^T / \sqrt{d}) \cdot V$};
+  \node[block, below=of sa] (gca) {\textbf{Guided Cross-Attention}\\$z = \text{concat}(\alpha_T \cdot z_I,\; \alpha_I \cdot z_T)$};
+  \node[block, below=of gca] (da) {\textbf{Differential Attention}\\$\text{softmax}(Q_1 K_1^T) - \lambda \cdot \text{softmax}(Q_2 K_2^T)$};
+  \node[block, below=of da] (cls) {\textbf{Classification}\\$\hat{y} = \text{softmax}(\text{FC}(z'))$};
+
+  \draw[arrow] (kf) -- (fe);
+  \draw[arrow] (fe) -- (sa);
+  \draw[arrow] (sa) -- (gca);
+  \draw[arrow] (gca) -- (da);
+  \draw[arrow] (da) -- (cls);
+\end{tikzpicture}
+\caption{Pipeline Differential Attention (Paper 2)}
+\label{fig:diffattn-pipeline}
+\end{figure}
+
+\subsection{Differential Attention — Công Thức Cốt Lõi}
+
+Cơ chế Differential Attention được định nghĩa:
+\begin{equation}
+\text{DiffAttn}(X) = \left(\text{softmax}\!\left(\frac{Q_1 K_1^T}{\sqrt{d}}\right) - \lambda \cdot \text{softmax}\!\left(\frac{Q_2 K_2^T}{\sqrt{d}}\right)\right) V
+\label{eq:diffattn}
+\end{equation}
+trong đó $\lambda$ là \textbf{tham số vô hướng có thể học được} (learnable scalar), và:
+\begin{equation}
+[Q_1;\; Q_2] = X W^Q, \quad [K_1;\; K_2] = X W^K, \quad V = X W^V
+\end{equation}
+
+\begin{insightbox}[Ý nghĩa trực giác]
+Phép trừ $\text{softmax}(Q_1 K_1^T) - \lambda \cdot \text{softmax}(Q_2 K_2^T)$ cho phép mô hình \textbf{loại bỏ nhiễu một cách thích ứng}: attention map thứ nhất nắm bắt thông tin chính, attention map thứ hai ước lượng pattern nhiễu, $\lambda$ kiểm soát mức độ loại bỏ.
+\end{insightbox}
+
+% ========== SECTION 4 ==========
+\section{Kiến Thức Chung \& Phương Pháp Luận}
+
+\subsection{CLIP — Nền Tảng Chung}
+
+\begin{table}[H]
+\centering
+\caption{So sánh cách sử dụng CLIP giữa 2 paper}
+\label{tab:clip}
+\rowcolors{2}{tablerow1}{tablerow2}
+\begin{tabularx}{\textwidth}{>{\bfseries}l X X}
+\toprule
+\rowcolor{tableheader}
+\textcolor{white}{\textbf{Khía cạnh}} & \textcolor{white}{\textbf{Paper 1 (GNN)}} & \textcolor{white}{\textbf{Paper 2 (DiffAttn)}} \\
+\midrule
+Phiên bản & Multilingual ViT (WIT) & Standard (không chỉ rõ) \\
+Frozen & Không nói rõ & Frozen hoàn toàn \\
+Input text & Text gốc tweet & Text gốc + LLaVA description \\
+Post-processing & PCA $\rightarrow$ 256d & Giữ nguyên (dim $d$) \\
+Multilingual & Có (cho 7Sept dataset) & Không \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Transfer Learning — 2 Chiến Thuật}
+
+\begin{table}[H]
+\centering
+\caption{Triết lý Transfer Learning}
+\rowcolors{2}{tablerow1}{tablerow2}
+\begin{tabularx}{\textwidth}{>{\bfseries}l X X}
+\toprule
+\rowcolor{tableheader}
+\textcolor{white}{\textbf{Mặt}} & \textcolor{white}{\textbf{Paper 1: Transfer + Adapt}} & \textcolor{white}{\textbf{Paper 2: Transfer + Preserve}} \\
+\midrule
+CLIP & Extract features & Extract features (frozen) \\
+Downstream & PCA $\rightarrow$ Graph $\rightarrow$ GNN (train) & Attention layers (train) \\
+Pre-trained & CLIP only & CLIP + LLaVA \\
+Philosophy & Chưng cất thành compact repr. & Bảo toàn alignment nguyên bản \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Xử Lý Nhiễu — 2 Cấp Độ Khác Nhau}
+
+\begin{noveltybox}[Insight Quan Trọng: Noise Handling ở 2 Cấp]
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Paper 1 — Instance-level:} Graph consensus — posts tương tự ``vote'' cho nhau qua graph propagation $\rightarrow$ nhiễu bị triệt tiêu bởi đa số
+  \item \textbf{Paper 2 — Feature-level:} DiffAttn loại bỏ noise patterns thông qua phép trừ attention maps thích ứng
+  \item \textbf{$\Rightarrow$ Kết hợp cả 2 cấp} (instance + feature) là hướng nghiên cứu mới chưa ai khai thác
+\end{itemize}
+\end{noveltybox}
+
+% ========== SECTION 5 ==========
+\section{Phân Tích Hạn Chế}
+
+\subsection{Paper 1 — Hạn Chế}
+
+\begin{table}[H]
+\centering
+\caption{Hạn chế Paper 1 (GNN) — trích dẫn trực tiếp}
+\rowcolors{2}{tablerow1}{tablerow2}
+\begin{tabularx}{\textwidth}{c >{\bfseries}l X c}
+\toprule
+\rowcolor{tableheader}
+\textcolor{white}{\#} & \textcolor{white}{Hạn chế} & \textcolor{white}{Trích dẫn} & \textcolor{white}{Mức} \\
+\midrule
+L1 & Memory $O(n^2)$ & \textit{``500K mục $\rightarrow$ 2.5$\times$10$^{11}$ entries $=$ 1Tb... đi ngược mục tiêu giải pháp nhẹ''} & \textcolor{red}{Critical} \\
+L2 & Static graph & \textit{``cần xây dựng lại đồ thị từ đầu sử dụng toàn bộ dataset''} & \textcolor{red}{Critical} \\
+L3 & Privacy risks & \textit{``có thể làm lộ khuynh hướng chính trị cá nhân''} & \textcolor{orange}{Medium} \\
+L4 & Ambiguous data & \textit{``ảnh trông giống thảm họa nhưng không mang tính thông tin''} & \textcolor{orange}{Medium} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Paper 2 — Hạn Chế}
+
+\begin{table}[H]
+\centering
+\caption{Hạn chế Paper 2 (DiffAttn) — trích dẫn trực tiếp}
+\rowcolors{2}{tablerow1}{tablerow2}
+\begin{tabularx}{\textwidth}{c >{\bfseries}l X c}
+\toprule
+\rowcolor{tableheader}
+\textcolor{white}{\#} & \textcolor{white}{Hạn chế} & \textcolor{white}{Trích dẫn} & \textcolor{white}{Mức} \\
+\midrule
+L5 & DiffAttn kém Task 2,3 & \textit{``không mang lại cải thiện đáng kể so với Guided CA... ranh giới quyết định ít mơ hồ hơn''} & \textcolor{orange}{Medium} \\
+L6 & Class imbalance & \textit{``mức độ mất cân bằng lớp rất cao... buộc gộp 3 danh mục thành 1''} & \textcolor{red}{Critical} \\
+L7 & LLaVA cost & Cần VLM inference cho toàn bộ dataset & \textcolor{orange}{Medium} \\
+L8 & Không semi-supervised & Supervised only, không tận dụng unlabeled data & \textcolor{orange}{Medium} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Hạn Chế Chung}
+
+\begin{warningbox}[Thiếu sót nghiêm trọng ở cả 2 paper]
+\begin{enumerate}[leftmargin=*]
+  \item Không report \textbf{confidence intervals} — kết quả từ 1 lần chạy
+  \item Không \textbf{statistical significance tests} — khó kết luận method A $>$ B
+  \item Chiến lược fusion chưa tối ưu — cả 2 đều đề xuất tinh chỉnh thêm
+  \item Chưa test \textbf{cross-disaster generalization} — chỉ CrisisMMD + 7Sept
+  \item Chưa benchmark \textbf{latency/throughput} cho real-time deployment
+\end{enumerate}
+\end{warningbox}
+
+% ========== SECTION 6 ==========
+\section{Đề Xuất Nghiên Cứu Mới}
+
+\subsection{N1: Graph-Enhanced Differential Attention (GEDA)}
+
+\begin{noveltybox}[Đề xuất \#1 — Đóng góp chính]
+\textbf{Ý tưởng:} Kết hợp graph propagation (Paper 1) với 3-layer attention stack (Paper 2) trên cùng một pipeline.
+
+\textbf{Tính mới:} Paper 1 dùng graph $\rightarrow$ classify (không attention). Paper 2 dùng attention $\rightarrow$ classify (không graph). \textbf{GEDA dùng graph $\rightarrow$ attention $\rightarrow$ classify} — noise handling ở \textit{cả instance-level VÀ feature-level}.
+\end{noveltybox}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  node distance=0.9cm,
+  block/.style={rectangle, draw=primary, fill=primary!8, text width=6.5cm, minimum height=0.9cm, align=center, rounded corners=2pt, font=\footnotesize},
+  label/.style={font=\tiny\color{gray}, align=right},
+  arrow/.style={-{Stealth[length=2.5mm]}, thick, color=primary}
+]
+  \node[block] (kf) {LLaVA Knowledge Fusion};
+  \node[block, below=of kf] (clip) {CLIP Feature Extraction (frozen)};
+  \node[block, below=of clip] (pca) {PCA Reduction ($\rightarrow$ 256d)};
+  \node[block, below=of pca] (graph) {FAISS k-NN Graph ($k$=16)};
+  \node[block, below=of graph] (gnn) {GraphSAGE (2 layers $\times$ 512d)};
+  \node[block, below=of gnn] (attn) {Self-Attn $\rightarrow$ GCA $\rightarrow$ DiffAttn};
+  \node[block, below=of attn] (cls) {Multi-task Classification Head};
+
+  \draw[arrow] (kf) -- (clip);
+  \draw[arrow] (clip) -- (pca);
+  \draw[arrow] (pca) -- (graph);
+  \draw[arrow] (graph) -- (gnn);
+  \draw[arrow] (gnn) -- (attn);
+  \draw[arrow] (attn) -- (cls);
+
+  \node[label, right=0.3cm of kf] {Paper 2};
+  \node[label, right=0.3cm of clip] {Paper 2};
+  \node[label, right=0.3cm of pca] {Paper 1};
+  \node[label, right=0.3cm of graph] {Paper 1 + FAISS};
+  \node[label, right=0.3cm of gnn] {Paper 1};
+  \node[label, right=0.3cm of attn] {Paper 2};
+  \node[label, right=0.3cm of cls] {\textbf{Novel}};
+\end{tikzpicture}
+\caption{Kiến trúc GEDA đề xuất}
+\label{fig:geda}
+\end{figure}
+
+\subsection{N2: Adaptive Knowledge Fusion (AKF)}
+
+Mở rộng Knowledge Fusion của Paper 2 với \textbf{task-specific prompts} thay vì generic prompt:
+
+\begin{table}[H]
+\centering
+\caption{Task-specific LLaVA prompts}
+\rowcolors{2}{tablerow1}{tablerow2}
+\begin{tabularx}{\textwidth}{l X}
+\toprule
+\rowcolor{tableheader}
+\textcolor{white}{\textbf{Task}} & \textcolor{white}{\textbf{Prompt đề xuất}} \\
+\midrule
+Task 1 & ``Is this image showing a natural disaster (hurricane, earthquake, flood, wildfire)? Describe disaster-related elements.'' \\
+Task 2 & ``What humanitarian needs are visible after this natural disaster? Describe infrastructure damage, rescue efforts, injured people.'' \\
+Task 3 & ``Rate the natural disaster damage severity 0--10. Describe structural collapse, flooding depth, fire spread.'' \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{N3: Dynamic Graph Construction (DGC)}
+
+Giải quyết trực tiếp L1 và L2 của Paper 1:
+\begin{itemize}
+  \item \textbf{Training:} FAISS IVF index thay brute-force k-NN: $O(n \cdot k \cdot \log n)$
+  \item \textbf{Inference:} Insert node mới $\rightarrow$ FAISS query $\rightarrow$ local graph update $\rightarrow$ 2-hop propagation: $O(\log n)$ per query thay vì $O(n^2)$
+\end{itemize}
+
+\subsection{N4: Multi-task Learning Framework (MTL)}
+
+Train cả 3 tasks đồng thời:
+\begin{equation}
+\mathcal{L}_{\text{total}} = \lambda_1 \mathcal{L}_{\text{info}} + \lambda_2 \mathcal{L}_{\text{human}} + \lambda_3 \mathcal{L}_{\text{damage}} + \alpha \mathcal{L}_{\text{contrastive}} + \beta \mathcal{L}_{\text{graph}}
+\label{eq:mtl-loss}
+\end{equation}
+với $\mathcal{L}_{\text{info}}, \mathcal{L}_{\text{human}}, \mathcal{L}_{\text{damage}}$ là Focal Loss cho từng task; $\mathcal{L}_{\text{contrastive}}$ regularizes shared representations; $\mathcal{L}_{\text{graph}}$ đảm bảo graph consistency.
+
+\subsection{N5: Confidence-Aware Semi-supervised Learning (CASSL)}
+
+Phân tầng unlabeled data theo uncertainty:
+\begin{enumerate}
+  \item Train initial model trên labeled data (50--250 mẫu)
+  \item Predict trên unlabeled data + MC Dropout ($T$=10 forward passes)
+  \item Tính entropy: $H = -\sum p \cdot \log(p)$
+  \item \textbf{High confidence} ($H < \tau_1$): $\rightarrow$ pseudo-labeled (hard labels)
+  \item \textbf{Medium} ($\tau_1 \leq H < \tau_2$): $\rightarrow$ soft labels
+  \item \textbf{Low} ($H \geq \tau_2$): $\rightarrow$ propagate qua graph only
+  \item Retrain with expanded dataset (curriculum learning)
+\end{enumerate}
+
+\subsection{N6: Temporal Crisis Modeling (TCM)}
+
+Thêm yếu tố thời gian vào graph edge weights:
+\begin{equation}
+w_{ij} = \text{cosine\_sim}(f_i, f_j) \times \exp\left(-\frac{|t_i - t_j|}{\tau}\right)
+\end{equation}
+Posts gần nhau về \textit{thời gian và nội dung} sẽ có edge weight cao hơn.
+
+\subsection{N7: Explainable Crisis Classification (ECC)}
+
+Framework giải thích quyết định:
+\begin{enumerate}
+  \item \textbf{Attention Heatmap:} Vùng image/text nào ảnh hưởng nhất
+  \item \textbf{Graph Evidence:} ``5/7 posts tương tự được phân loại damage''
+  \item \textbf{Modality Contribution:} ``Image: 60\% | Text: 40\%''
+  \item \textbf{Confidence + Warning:} ``73\% confidence — similar posts có mixed labels''
+\end{enumerate}
+
+% ========== SECTION 7 ==========
+\section{Đánh Giá Khả Thi \& Rủi Ro}
+
+\begin{table}[H]
+\centering
+\caption{Ma trận đánh giá tính khả thi của các đề xuất}
+\label{tab:feasibility}
+\rowcolors{2}{tablerow1}{tablerow2}
+\begin{tabular}{clccccc}
+\toprule
+\rowcolor{tableheader}
+\textcolor{white}{\#} & \textcolor{white}{\textbf{Đề xuất}} & \textcolor{white}{\textbf{Novelty}} & \textcolor{white}{\textbf{Difficulty}} & \textcolor{white}{\textbf{Impact}} & \textcolor{white}{\textbf{Feasibility}} & \textcolor{white}{\textbf{Priority}} \\
+\midrule
+N1 & GEDA & $\star\star\star\star\star$ & Hard & High & 70\% & \textbf{\#1} \\
+N3 & DGC & $\star\star\star\star$ & Med & High & 80\% & \textbf{\#2} \\
+N4 & MTL & $\star\star\star\star$ & Med & High & 85\% & \textbf{\#3} \\
+N2 & AKF & $\star\star\star$ & Med & Med & 85\% & \#4 \\
+N5 & CASSL & $\star\star\star\star\star$ & Hard & High & 65\% & \#5 \\
+N6 & TCM & $\star\star\star$ & Med & Med & 75\% & \#6 \\
+N7 & ECC & $\star\star\star$ & Easy & Med & 90\% & \#7 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ========== SECTION 8 ==========
+\section{Roadmap Triển Khai}
+
+\begin{table}[H]
+\centering
+\caption{Lộ trình triển khai 4 phases}
+\rowcolors{2}{tablerow1}{tablerow2}
+\begin{tabularx}{\textwidth}{c l X c}
+\toprule
+\rowcolor{tableheader}
+\textcolor{white}{\textbf{Phase}} & \textcolor{white}{\textbf{Tên}} & \textcolor{white}{\textbf{Nội dung}} & \textcolor{white}{\textbf{Thời gian}} \\
+\midrule
+0 & Current & Reproduce 2 baselines; metrics extraction & \textcolor{success}{Done} \\
+1 & Foundations & MTL loss (N4); Statistical eval (D4); Class imbalance (D2) & 2--3 tuần \\
+2 & Core Innovation & GEDA (N1); FAISS graph (N3); Ablation study & 3--4 tuần \\
+3 & Advanced & CASSL (N5); AKF (N2); Cross-disaster (D3); TCM (N6) & 3--4 tuần \\
+4 & Polish & ECC (N7); Real-time demo (D5); Paper writing & 2--3 tuần \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+% ========== SECTION 9: RESEARCH QUESTIONS ==========
+\section{Vấn Đề Nghiên Cứu Cần Giải Quyết}
+
+Dựa trên phân tích chi tiết ở các mục trước, chúng tôi xác định \textbf{5 vấn đề nghiên cứu chính} (Research Questions) cần được giải quyết để đưa lĩnh vực multimodal crisis classification tiến xa hơn.
+
+\subsection{RQ1: Semi-supervised Graph + Attention Có Tạo Synergy?}
+
+\begin{noveltybox}[Research Question 1]
+\textit{Khi kết hợp graph-based semi-supervised learning (Paper 1) với multi-layer attention stack (Paper 2), noise handling ở instance-level và feature-level có tạo hiệu ứng cộng hưởng vượt trội so với từng approach riêng lẻ?}
+\end{noveltybox}
+
+\textbf{Hypotheses:}
+\begin{itemize}
+  \item \textbf{H1a:} GEDA (Graph + Attention) $>$ Paper 1 (Graph only) trên tất cả few-shot settings
+  \item \textbf{H1b:} GEDA $>$ Paper 2 (Attention only) khi labeled data $<$ 100 mẫu
+  \item \textbf{H1c:} Improvement lớn nhất ở setting 50 labeled (ultra-low resource)
+\end{itemize}
+
+\textbf{Thiết kế thực nghiệm:} So sánh 4 kiến trúc (Paper 1 only, Paper 2 only, GEDA, Reverse-GEDA) trên CrisisMMD cả 3 tasks, với 4 few-shot settings (50, 100, 250, 500), chạy 5 seeds. Report Macro F1 $\pm$ 95\% CI, paired t-test ($\alpha$=0.05) với Bonferroni correction.
+
+\subsection{RQ2: Tại Sao DiffAttn Kém Trên Task 2, 3?}
+
+\begin{noveltybox}[Research Question 2]
+\textit{Paper 2 thừa nhận DiffAttn ``không mang lại cải thiện đáng kể'' trên Task 2 và 3. Nguyên nhân là gì, và làm thế nào thiết kế task-adaptive DiffAttn?}
+\end{noveltybox}
+
+\textbf{Đề xuất Adaptive $\lambda$:} Thay $\lambda$ cố định bằng input-dependent function:
+\begin{equation}
+\lambda(x) = \sigma\!\left(\text{MLP}\!\left(\text{concat}(f_I, f_T)\right)\right)
+\end{equation}
+Hoặc task-conditioned: $\lambda_{\text{task}} = \sigma(W_{\text{task}} \cdot z + b_{\text{task}})$ — mỗi task có $\lambda$ riêng.
+
+\textbf{Hypotheses:}
+\begin{itemize}
+  \item \textbf{H2a:} Task-specific $\lambda_{\text{task}}$ $>$ Global $\lambda$ trên Task 2, 3
+  \item \textbf{H2b:} Input-dependent $\lambda(x)$ $>$ Static $\lambda$ trên tất cả tasks
+\end{itemize}
+
+\subsection{RQ3: Graph Construction Kháng Nhiễu?}
+
+\begin{noveltybox}[Research Question 3]
+\textit{Social media chứa nhiều posts có visual similarity cao nhưng semantic meaning khác (ảnh lửa thực vs lửa trại). Làm sao cải thiện chất lượng graph?}
+\end{noveltybox}
+
+\textbf{Đề xuất Multi-signal Graph Edge Weight:}
+\begin{equation}
+w_{ij} = \sum_{k=1}^{5} \alpha_k \cdot s_k(i,j), \quad \alpha_k = \text{softmax}(\theta_k)
+\label{eq:multisignal}
+\end{equation}
+với $s_1$: visual similarity, $s_2$: textual similarity, $s_3, s_4$: cross-modal I$\leftrightarrow$T, $s_5$: temporal proximity. Các $\alpha_k$ là learnable weights.
+
+\subsection{RQ4: Cross-Disaster-Type Transfer Trong Thảm Hoạ Thiên Nhiên?}
+
+\begin{noveltybox}[Research Question 4]
+\textit{Mô hình trained trên một số loại thảm hoạ thiên nhiên (ví dụ: bão + động đất + lũ lụt) có thể classify đúng cho loại thảm hoạ chưa từng thấy (cháy rừng) mà không cần retrain?}
+\end{noveltybox}
+
+CrisisMMD v2.0 bao gồm \textbf{4 loại} thảm hoạ (bão, động đất, cháy rừng, lũ lụt) — cho phép thiết kế thực nghiệm cross-type trong phạm vi natural disasters:
+
+\textbf{Thực nghiệm đề xuất:}
+\begin{enumerate}
+  \item \textbf{Leave-one-TYPE-out:} 4 cặp thử nghiệm:
+    \begin{itemize}
+      \item Train (earthquake + wildfire + flood) $\rightarrow$ Test (hurricane)
+      \item Train (hurricane + wildfire + flood) $\rightarrow$ Test (earthquake)
+      \item Train (hurricane + earthquake + flood) $\rightarrow$ Test (wildfire)
+      \item Train (hurricane + earthquake + wildfire) $\rightarrow$ Test (flood)
+    \end{itemize}
+  \item \textbf{Leave-one-EVENT-out:} Train 6/7 events, test event còn lại
+  \item \textbf{Zero-shot baseline:} CLIP zero-shot + prompt ``A photo of natural disaster: \{type\}'' — so sánh với few-shot 50
+  \item \textbf{Continual learning:} Train incremental trên từng disaster type mới, đo catastrophic forgetting (BWT metric)
+\end{enumerate}
+
+Paper 1 đề cập: \textit{``tận dụng dữ liệu từ các sự kiện trước đó... giảm thiểu covariate shift''} nhưng \textbf{chưa implement}.
+
+\subsection{RQ5: Real-time $<$ 500ms Với Độ Chính Xác Đủ Tốt?}
+
+\begin{noveltybox}[Research Question 5]
+\textit{Có thể đạt $<$ 500ms inference per tweet trong khi vẫn giữ $\geq$ 90\% F1 so với offline pipeline?}
+\end{noveltybox}
+
+\textbf{Đề xuất: Tiered Processing Pipeline}
+\begin{table}[H]
+\centering
+\caption{Pipeline xử lý phân tầng theo confidence}
+\rowcolors{2}{tablerow1}{tablerow2}
+\begin{tabularx}{\textwidth}{c l c X}
+\toprule
+\rowcolor{tableheader}
+\textcolor{white}{\textbf{Tier}} & \textcolor{white}{\textbf{Mô tả}} & \textcolor{white}{\textbf{Latency}} & \textcolor{white}{\textbf{Traffic}} \\
+\midrule
+1 & CLIP Zero-shot (conf $>$ 0.9) & $<$ 50ms & $\sim$60\% posts \\
+2 & GEDA Lite: 1-hop + Self-Attn (conf $>$ 0.8) & $<$ 200ms & $\sim$30\% posts \\
+3 & GEDA Full: 2-hop + GCA + DiffAttn + LLaVA & $<$ 2s & $\sim$10\% posts \\
+\midrule
+\multicolumn{2}{l}{\textbf{Weighted Average}} & \textbf{$\sim$290ms} & 100\% \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+% ========== SECTION 10: ADVANCED DIRECTIONS ==========
+\section{Hướng Nghiên Cứu Chuyên Sâu}
+
+Ngoài 5 RQs chính, chúng tôi xác định 4 hướng nghiên cứu dài hạn có tiềm năng đóng góp đáng kể.
+
+\subsection{Hướng A: Heterogeneous Crisis Graph}
+
+Paper 1 đề xuất: \textit{``Đồ thị không đồng nhất cho phép các loại cạnh và nút khác nhau... kết hợp inter-modal, cross-modal, metadata''} nhưng \textbf{chưa implement}.
+
+\begin{table}[H]
+\centering
+\caption{So sánh Homogeneous vs Heterogeneous Graph}
+\rowcolors{2}{tablerow1}{tablerow2}
+\begin{tabularx}{\textwidth}{l X X}
+\toprule
+\rowcolor{tableheader}
+\textcolor{white}{\textbf{Khía cạnh}} & \textcolor{white}{\textbf{Homogeneous (hiện tại)}} & \textcolor{white}{\textbf{Heterogeneous (đề xuất)}} \\
+\midrule
+Nodes & Post only & Post + User + Event + Location \\
+Edges & Content similarity & Content sim + authored\_by + belongs\_to + geo\_tag \\
+GNN & GraphSAGE & HAN/HGT (Heterogeneous Graph Transformer) \\
+Info & Chỉ nội dung & Nội dung + social network + geography + timeline \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Hướng B: Prompt-tuned CLIP for Natural Disaster Domain}
+
+Nghiên cứu SOTA 2025 cho thấy \textbf{learnable prompts} cải thiện đáng kể performance so với hand-crafted prompts, trong khi chỉ cần $\sim$2K tham số mới (so với millions khi fine-tune):
+
+\begin{equation}
+\text{prompt}_{\text{task}} = [V_1^{\text{task}}]\;[V_2^{\text{task}}]\;\cdots\;[V_m^{\text{task}}]\;\text{\{class\_name\}}
+\end{equation}
+
+Training: chỉ optimize $V_1 \ldots V_m$, CLIP weights frozen. \textbf{Vấn đề:} Prompt learning có thể encode disaster-specific visual patterns (nước ngập, tòa nhà sập, khói lửa) tốt hơn generic CLIP không?
+
+\subsection{Hướng C: Continual Learning cho Loại Thảm Họa Thiên Nhiên Mới}
+
+CrisisMMD chỉ bao gồm 4 loại (bão, động đất, cháy rừng, lũ lụt). Thực tế có nhiều loại khác: sóng thần, núi lửa, lở đất, hạn hán. Mô hình cần \textbf{continuously adapt} khi gặp loại thảm hoạ mới mà không quên kiến thức cũ:
+
+\begin{itemize}
+  \item \textbf{Phương pháp:} EWC (Elastic Weight Consolidation) hoặc LwF (Learning without Forgetting)
+  \item \textbf{Metric:} Backward Transfer $\text{BWT} = \frac{1}{T} \sum [F1_t(\text{task}_i) - F1_i(\text{task}_i)]$
+  \item \textbf{Goal:} BWT $\geq 0$ (không forgetting)
+  \item \textbf{Ví dụ:} Train trên (bão, động đất) $\rightarrow$ fine-tune thêm (cháy rừng) $\rightarrow$ mà không quên phân loại bão
+  \item \textbf{Vấn đề mở:} Catastrophic forgetting ảnh hưởng thế nào đến \textit{graph topology} khi mở rộng sang disaster type mới?
+\end{itemize}
+
+\subsection{Hướng D: Phát Hiện Hallucination Từ VLM}
+
+Paper 2 dùng LLaVA tạo image descriptions. VLMs có thể \textbf{hallucinate} — tạo mô tả sai so với thực tế:
+
+\begin{warningbox}[Rủi ro Hallucination]
+\textbf{False positive:} Ảnh bình thường $\rightarrow$ LLaVA mô tả ``severe structural damage'' $\rightarrow$ phân loại sai thành damage.
+
+\textbf{Giải pháp đề xuất:} CLIP Consistency Check — so sánh cosine similarity giữa image embedding và LLaVA-generated text embedding. Nếu $\text{sim}(f_I, f_{\text{LLaVA}}) < \tau_{\text{hallucination}}$ $\rightarrow$ loại bỏ LLaVA description, dùng text gốc.
+\end{warningbox}
+
+% ========== SECTION 11: CAUSAL CRISIS ==========
+\section{Mô Hình Đột Phá: CausalCrisis}
+
+\subsection{Luận Điểm Nhân Quả (Causal Inference)}
+
+Các mô hình truyền thống (bao gồm GEDA) chủ yếu học sự tương quan thống kê (statistical correlation) giữa features và nhãn. Tuy nhiên, trong dữ liệu mạng xã hội về thảm họa, luôn tồn tại \textbf{Spurious Correlations} (tương quan giả) do đặc trưng của từng vùng miền/sự kiện (domain-specific features). 
+
+Ví dụ: Mô hình học được "logo của đài truyền hình X" $\rightarrow$ "tin báo bão" (vì đài X đưa tin nhiều về bão Harvey). Khi dự đoán cho bão ở vùng khác, mô hình có thể nhận diện sai.
+
+\begin{insightbox}[Structural Causal Model (SCM)]
+Chúng tôi định nghĩa một SCM cho bài toán phân loại thảm họa:
+\begin{enumerate}[leftmargin=*]
+    \item $D$: Disaster Domain (Harvey, Irma, Mexico Earthquake...)
+    \item $S$: Spurious Features (background, timezone, specific entity names)
+    \item $C$: Causal Features (water level, collapsed buildings, fire)
+    \item $Y$: Label (Humanitarian, Damage, Informativeness)
+\end{enumerate}
+Trong SCM này, Domain $D$ là một \textbf{Confounder} (biến nhiễu) tạo ra các đặc trưng giả $S$. Đường dẫn $D \rightarrow S \rightarrow Y$ khiến mô hình học sai bản chất. Mục tiêu của CausalCrisis là \textbf{loại bỏ ảnh hưởng của $D$} thông qua can thiệp nhân quả (Causal Intervention).
+\end{insightbox}
+
+\subsection{Kiến Trúc CausalCrisis}
+
+CausalCrisis được xây dựng dựa trên nền tảng của GEDA nhưng tích hợp thêm 2 module cốt lõi: \textbf{Causal Disentangler} và \textbf{Causal Intervention}.
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{
+\begin{tikzpicture}[
+  node distance=1.5cm and 2.5cm,
+  module/.style={rectangle, draw=primary, fill=lightbg, text width=4.5cm, minimum height=1cm, align=center, rounded corners=3pt, font=\small},
+  causal/.style={rectangle, draw=success, fill=success!10, text width=4.5cm, minimum height=1cm, align=center, rounded corners=3pt, font=\small, thick},
+  spurious/.style={rectangle, draw=warning, fill=warning!10, text width=3.2cm, minimum height=1cm, align=center, rounded corners=3pt, font=\small, dashed},
+  adv/.style={rectangle, draw=highlight, fill=orange!10, text width=4.5cm, minimum height=1cm, align=center, rounded corners=3pt, font=\small, thick},
+  data/.style={rectangle, draw=secondary, fill=white, text width=2.5cm, minimum height=0.8cm, align=center, rounded corners=15pt, font=\small},
+  arrow/.style={-{Stealth[length=3mm]}, thick, color=primary},
+  causalarrow/.style={-{Stealth[length=3mm]}, thick, color=success},
+  spuriousarrow/.style={-{Stealth[length=3mm]}, thick, color=warning, dashed},
+  groupbox/.style={rectangle, draw=gray, fill=gray!5, inner sep=12pt, rounded corners=5pt, dashed}
+]
+
+  % Inputs
+  \node[data] (img_in) {Image Features};
+  \node[data, right=5cm of img_in] (txt_in) {Text Features};
+
+  % Stage 1: Projection
+  \node[module, below=0.7cm of img_in] (proj_img) {Image Projection\\($h_{img}$)};
+  \node[module, below=0.7cm of txt_in] (proj_txt) {Text Projection\\($h_{txt}$)};
+
+  % Stage 2: Disentanglement
+  \node[causal, below=1.2cm of proj_img] (dis_img) {Causal Disentangler\\$C_V \perp S_V$};
+  \node[causal, below=1.2cm of proj_txt] (dis_txt) {Causal Disentangler\\$C_T \perp S_T$};
+
+  % Adversarial Branches (Spurious & GRL)
+  \node[spurious, left=1cm of dis_img] (dom_sv) {Domain Cls.\\Học nhiễu $S_V$};
+  \node[spurious, right=1cm of dis_txt] (dom_st) {Domain Cls.\\Học nhiễu $S_T$};
+  
+  \node[adv, below=1cm of dom_sv] (dom_cv) {Domain Cls. + GRL\\Xóa miền của $C_V$};
+  \node[adv, below=1cm of dom_st] (dom_ct) {Domain Cls. + GRL\\Xóa miền của $C_T$};
+
+  % Connecting Stage 1 -> 2
+  \draw[arrow] (img_in) -- (proj_img);
+  \draw[arrow] (txt_in) -- (proj_txt);
+  \draw[arrow] (proj_img) -- (dis_img);
+  \draw[arrow] (proj_txt) -- (dis_txt);
+
+  % Connecting Disentanglement -> Adversarial
+  \draw[spuriousarrow] (dis_img) -- node[above, font=\scriptsize] {$S_V$} (dom_sv);
+  \draw[spuriousarrow] (dis_txt) -- node[above, font=\scriptsize] {$S_T$} (dom_st);
+  \draw[causalarrow] (dis_img) |- node[above near end, font=\scriptsize] {$C_V$} (dom_cv);
+  \draw[causalarrow] (dis_txt) |- node[above near end, font=\scriptsize] {$C_T$} (dom_ct);
+
+  % Stage 3: Graph Propagation
+  \node[causal, below=2cm of dis_img] (gnn_img) {Causal Graph\\(GNN on $C_V$)};
+  \node[causal, below=2cm of dis_txt] (gnn_txt) {Causal Graph\\(GNN on $C_T$)};
+  \node[data, text width=2cm, fill=success!5, draw=success, dashed] (adj) at ($(gnn_img)!0.5!(gnn_txt)$) {Kháng Nhiễu\\Causal Adj.};
+
+  \draw[causalarrow] (dis_img) -- node[right, font=\scriptsize] {$C_V$} (gnn_img);
+  \draw[causalarrow] (dis_txt) -- node[left, font=\scriptsize] {$C_T$} (gnn_txt);
+  \draw[causalarrow] (adj) -- (gnn_img);
+  \draw[causalarrow] (adj) -- (gnn_txt);
+
+  % Stage 4: Attention
+  \node[module, below=1cm of gnn_img] (self_img) {Self-Attention ($C_V'$)};
+  \node[module, below=1cm of gnn_txt] (self_txt) {Self-Attention ($C_T'$)};
+  \node[module, text width=10.5cm, below=1.2cm of adj, yshift=-1.5cm] (gca) {Guided Cross-Attention\\Tạo Đặc Trưng Xuyên Phương Thức $C_{VT}$};
+
+  \draw[causalarrow] (gnn_img) -- (self_img);
+  \draw[causalarrow] (gnn_txt) -- (self_txt);
+  \draw[causalarrow] (self_img) |- (gca);
+  \draw[causalarrow] (self_txt) |- (gca);
+
+  % Stage 5 & 6 & 7
+  \node[adv, below=0.8cm of gca] (inter) {Causal Intervention \textbf{$do(C_{VT})$}\\Backdoor Adjustment qua Memory Bank};
+  \node[module, below=0.8cm of inter] (diff) {Differential Attention (Khử nhiễu cục bộ)};
+  \node[causal, below=0.8cm of diff] (cls) {Multi-task Classification\\(Info, Human, Damage)};
+
+  \draw[causalarrow] (gca) -- (inter);
+  \draw[causalarrow] (inter) -- (diff);
+  \draw[causalarrow] (diff) -- (cls);
+
+  % Background Boxes
+  \begin{scope}[on background layer]
+    \node[groupbox, fit=(dis_img)(dis_txt)(dom_sv)(dom_st)(dom_cv)(dom_ct), label={[font=\bfseries\color{gray}, anchor=south east]south east:Stage 1: Causal Disentanglement}] {};
+    \node[groupbox, fit=(gnn_img)(gnn_txt)(adj), label={[font=\bfseries\color{gray}, anchor=north east]north east:Stage 2: Causal Graph Optimization}] {};
+    \node[groupbox, fit=(inter), label={[font=\bfseries\color{gray}, anchor=south east]north east:Stage 3: Causal Intervention}] {};
+  \end{scope}
+
+\end{tikzpicture}
+}
+\caption{Kiến Trúc Chi Tiết Của CausalCrisis Khắc Phục Nhiễu Spurious}
+\label{fig:causalcrisis}
+\end{figure}
+
+\subsection{Các Thành Phần Cốt Lõi}
+
+\subsubsection{Causal Disentanglement \& Adversarial Training}
+Như quan sát trên hình \ref{fig:causalcrisis}, kiến trúc CausalCrisis xử lý riêng biệt hai luồng Dữ liệu Hình ảnh ($V$) và Dữ liệu Văn bản ($T$). 
+Thay vì nạp toàn bộ embedding vào GNN như ở mô hình cũ, CausalCrisis tách biểu diễn thành $C$ (Causal, nhân quả) và $S$ (Spurious, nhiễu giả). 
+
+Để đảm bảo $C$ không chứa thông tin đặc thù về domain (thảm họa cụ thể), một \textbf{Domain Classifier} kết hợp với \textbf{Gradient Reversal Layer (GRL)} được gài vào luồng $C_{V}$ và $C_{T}$ (ô màu cam). GRL đảo ngược gradient khi truyền ngược từ Domain Classifier về Causal Encoder, ép Causal Encoder phải "che giấu" thông tin domain để Domain Classifier dự đoán ngẫu nhiên. Trong khi đó, nhánh $S$ học trực tiếp cách phân loại domain để đảm bảo mọi "nhiễu thảm họa cục bộ" sẽ bị dồn hết về $S$.
+
+\textbf{Tiến bộ:} Nhờ hệ thống tách bạch minh bạch này, GNN và Attentions chỉ được lan truyền với đặc trưng Causal độc lập ($C_{V}, C_{T}$) (ô màu xanh lá), hoàn toàn triệt tiêu rủi ro lan truyền ảnh hưởng của nhiễu giả $S$ trong quá trình tích hợp đồ thị.
+
+\subsubsection{Causal Intervention qua do-calculus}
+Đối với thông tin đa phương thức $C_{vt}$, do dữ liệu tập huấn luyện bị mất cân bằng domain, cấu trúc thiên vị dễ xuất hiện. Ta áp dụng \textbf{Backdoor Adjustment}:
+\begin{equation}
+P(Y | do(C_{vt})) = \sum_{d} P(Y | C_{vt}, D=d) P(D=d)
+\end{equation}
+Thực tế, mô hình duy trì một \textbf{Memory Bank} ghi nhớ vector trung bình (centroids) của từng thảm họa. Khi train, $C_{vt}$ được tính toán bằng cách "trộn" với centroids của các sự kiện khác theo phân phối $P(D)$, giúp mô hình có cái nhìn tổng quan không bị bias bởi sự kiện thảm họa hiện tại.
+
+\subsection{Hàm Mất Mát CausalCrisis}
+Mô hình đào tạo với hàm loss đa mục tiêu tích hợp nhân quả:
+\begin{equation}
+\mathcal{L} = \mathcal{L}_{\text{cls}} + \alpha_{\text{adv}} \mathcal{L}_{\text{adv}} + \alpha_{\text{orth}} \mathcal{L}_{\text{orth}} + \alpha_{\text{recon}} \mathcal{L}_{\text{recon}}
+\end{equation}
+Trong đó $\mathcal{L}_{\text{orth}}$ là Orthogonal Regularization ép góc trực giao giữa $C$ và $S$ (nghĩa là chứa thông tin hoàn toàn khác nhau), $\mathcal{L}_{\text{recon}}$ đảm bảo $C$ và $S$ có thể khôi phục lại không gian gốc mà không đánh mất kiến thức.
+
+% ========== SECTION 12: CONCLUSION ==========
+\section{Kết Luận}
+
+Qua phân tích chi tiết kiến trúc, phương pháp luận, hạn chế, và bối cảnh SOTA 2025, chúng tôi nhận thấy một \textbf{cơ hội nghiên cứu lớn} nằm ở giao điểm giữa hai approaches:
+
+\begin{insightbox}[Kết luận chính]
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{CLIP} là backbone không thể thiếu — cả 2 nhóm độc lập đều sử dụng.
+  \item \textbf{Semi-supervised + rich attention} (GEDA) là sự kết hợp mạnh mẽ giải quyết nhiễu ở cả cấp độ graph (instance) và attention (feature).
+  \item \textbf{Spurious Correlations} là bài toán cốt lõi làm giảm \textit{generalization} của các mô hình đa phương thức thảm họa.
+  \item Giải pháp \textbf{GRL \& Causal Disentanglement} sẽ ép mô hình trích xuất đặc trưng thuần túy độc lập với các sự kiện cục bộ.
+  \item Áp dụng toán tử \textbf{do-calculus} trên Cấu trúc Xuyên Phương thức (Cross-modal features) tạo nên bước tiến vượt trội cho few-shot learning.
+  \item \textbf{CausalCrisis} hứa hẹn là cấu trúc State-Of-The-Art kế tiếp, tối đa sự ổn định và có khả năng giải quyết nhiễu nhân quả cấp cao thay vì chỉ là sự kết hợp ngẫu nhiên.
+\end{enumerate}
+\end{insightbox}
+
+\vspace{0.5cm}
+\noindent\textit{Báo cáo này được xây dựng dựa trên dữ liệu trích xuất trực tiếp từ 2 paper gốc thông qua NotebookLM, kết hợp khảo sát SOTA 2025-2026, đảm bảo tính chính xác và có dẫn chứng rõ ràng.}
+
+\end{document}

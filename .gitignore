@@ -35,3 +35,10 @@ env/
 # CLIP feature caches
 *.npy
 *.npz
+
+# Irrelevant items
+Documents/
+visualizations/
+.agent/
+.claude/
+.ai-devkit.json

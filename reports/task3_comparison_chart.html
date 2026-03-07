@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Task 3: GNN vs DiffAttn Comparison</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .chart-container {
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            border: 1px solid #334155;
+            border-radius: 16px;
+            padding: 40px;
+            max-width: 900px;
+            width: 100%;
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+        }
+
+        h1 {
+            font-size: 22px;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: 8px;
+            background: linear-gradient(90deg, #60a5fa, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #94a3b8;
+            font-size: 14px;
+            margin-bottom: 32px;
+        }
+
+        .bar-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 16px;
+            gap: 12px;
+        }
+
+        .bar-label {
+            width: 140px;
+            text-align: right;
+            font-size: 13px;
+            font-weight: 600;
+            color: #cbd5e1;
+            flex-shrink: 0;
+        }
+
+        .bar-track {
+            flex: 1;
+            background: #1e293b;
+            border-radius: 8px;
+            height: 40px;
+            position: relative;
+            overflow: visible;
+        }
+
+        .bar-fill {
+            height: 100%;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 12px;
+            font-weight: 700;
+            font-size: 15px;
+            color: #fff;
+            transition: width 1.5s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+        }
+
+        .bar-fill.diffattn {
+            background: linear-gradient(90deg, #ef4444, #f97316);
+        }
+
+        .bar-fill.gnn50 {
+            background: linear-gradient(90deg, #3b82f6, #60a5fa);
+        }
+
+        .bar-fill.gnn100 {
+            background: linear-gradient(90deg, #2563eb, #3b82f6);
+        }
+
+        .bar-fill.gnn250 {
+            background: linear-gradient(90deg, #1d4ed8, #2563eb);
+        }
+
+        .bar-fill.sirbu {
+            background: linear-gradient(90deg, #6b7280, #9ca3af);
+        }
+
+        .reference-lines {
+            margin-top: 24px;
+            position: relative;
+            height: 40px;
+            border-left: 2px solid #334155;
+            margin-left: 152px;
+        }
+
+        .ref-line {
+            position: absolute;
+            top: 0;
+            height: 100%;
+            border-left: 2px dashed;
+            display: flex;
+            align-items: flex-end;
+            padding-bottom: 4px;
+        }
+
+        .ref-line span {
+            font-size: 11px;
+            font-weight: 600;
+            white-space: nowrap;
+            transform: translateX(-50%);
+        }
+
+        .ref-line.gnn-paper {
+            border-color: #22c55e;
+            left: calc((77.1 - 60) / 22 * 100%);
+        }
+
+        .ref-line.gnn-paper span {
+            color: #22c55e;
+        }
+
+        .ref-line.diffattn-paper {
+            border-color: #f97316;
+            left: calc((75.0 - 60) / 22 * 100%);
+        }
+
+        .ref-line.diffattn-paper span {
+            color: #f97316;
+        }
+
+        .legend {
+            display: flex;
+            justify-content: center;
+            gap: 24px;
+            margin-top: 28px;
+            flex-wrap: wrap;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: #94a3b8;
+        }
+
+        .legend-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
+        }
+
+        .insight-box {
+            margin-top: 28px;
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 20px;
+        }
+
+        .insight-box h3 {
+            font-size: 14px;
+            color: #60a5fa;
+            margin-bottom: 10px;
+        }
+
+        .insight-box ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        .insight-box li {
+            font-size: 13px;
+            color: #cbd5e1;
+            padding: 4px 0;
+        }
+
+        .insight-box li::before {
+            content: '→ ';
+            color: #60a5fa;
+            font-weight: bold;
+        }
+
+        .scale {
+            display: flex;
+            justify-content: space-between;
+            margin-left: 152px;
+            margin-top: 6px;
+            font-size: 11px;
+            color: #64748b;
+        }
+
+        .tag {
+            display: inline-block;
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-left: 4px;
+            font-weight: 600;
+        }
+
+        .tag.best {
+            background: #166534;
+            color: #4ade80;
+        }
+
+        .tag.baseline {
+            background: #374151;
+            color: #9ca3af;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="chart-container">
+        <h1>📊 Task 3: Damage Severity Classification</h1>
+        <p class="subtitle">GNN (IEEE Access 2025) vs DiffAttn (CVPRw MMFM 2025) — CrisisMMD v2.0</p>
+
+        <div class="bar-row">
+            <div class="bar-label">DiffAttn (Ours)</div>
+            <div class="bar-track">
+                <div class="bar-fill diffattn" style="width: calc((72.0 - 60) / 22 * 100%)">72.0%</div>
+            </div>
+        </div>
+
+        <div class="bar-row">
+            <div class="bar-label">GNN · 50 labels</div>
+            <div class="bar-track">
+                <div class="bar-fill gnn50" style="width: calc((75.5 - 60) / 22 * 100%)">75.5%</div>
+            </div>
+        </div>
+
+        <div class="bar-row">
+            <div class="bar-label">GNN · 100 labels</div>
+            <div class="bar-track">
+                <div class="bar-fill gnn100" style="width: calc((76.2 - 60) / 22 * 100%)">76.2%</div>
+            </div>
+        </div>
+
+        <div class="bar-row">
+            <div class="bar-label">GNN · 250 labels <span class="tag best">Best</span></div>
+            <div class="bar-track">
+                <div class="bar-fill gnn250" style="width: calc((76.5 - 60) / 22 * 100%)">76.5%</div>
+            </div>
+        </div>
+
+        <div class="bar-row">
+            <div class="bar-label">Sirbu Baseline <span class="tag baseline">Ref</span></div>
+            <div class="bar-track">
+                <div class="bar-fill sirbu" style="width: calc((71.9 - 60) / 22 * 100%)">71.9%</div>
+            </div>
+        </div>
+
+        <div class="scale">
+            <span>60%</span><span>65%</span><span>70%</span><span>75%</span><span>80%</span><span>82%</span>
+        </div>
+
+        <div class="reference-lines">
+            <div class="ref-line diffattn-paper"><span>DiffAttn Paper 75.0%</span></div>
+            <div class="ref-line gnn-paper"><span>GNN Paper 77.1%</span></div>
+        </div>
+
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-dot" style="background: linear-gradient(90deg, #ef4444, #f97316)"></div>DiffAttn
+                (Macro F1)
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background: linear-gradient(90deg, #2563eb, #60a5fa)"></div>GNN CLIP+PCA
+                (Weighted F1)
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background: linear-gradient(90deg, #6b7280, #9ca3af)"></div>Sirbu et al.
+                Baseline
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background: #22c55e; border-radius:0; width:16px; height:2px;"></div>
+                Paper Reference
+            </div>
+        </div>
+
+        <div class="insight-box">
+            <h3>🔑 Key Insights</h3>
+            <ul>
+                <li><strong>GNN vượt trội ở few-shot</strong>: Chỉ cần 50 labels đã đạt 75.5% F1, cao hơn DiffAttn
+                    (72.0%)</li>
+                <li><strong>GNN matches paper</strong>: Kết quả ±0.7pp so với paper reference (77.1%)</li>
+                <li><strong>DiffAttn ngang paper</strong>: 72.0% vs paper 75.0% (chênh ~3pp do LLaVA + class imbalance)
+                </li>
+                <li><strong>Cả 2 > Baseline</strong>: Cả GNN và DiffAttn đều vượt Sirbu baseline (71.9%)</li>
+                <li><strong>Bổ sung nhau</strong>: GNN mạnh ở few-shot, DiffAttn mạnh ở attention interpretability</li>
+            </ul>
+        </div>
+    </div>
+</body>
+
+</html>

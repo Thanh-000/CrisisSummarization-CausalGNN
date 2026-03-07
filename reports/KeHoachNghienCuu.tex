@@ -1,0 +1,658 @@
+\documentclass[12pt,a4paper]{article}
+
+% ===== PACKAGES =====
+\usepackage[utf8]{inputenc}
+\usepackage[vietnamese]{babel}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{tabularx}
+\usepackage{xcolor}
+\usepackage{colortbl}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{geometry}
+\usepackage{fancyhdr}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, calc, decorations.pathreplacing}
+\usepackage{tcolorbox}
+\tcbuselibrary{skins,breakable}
+\usepackage{float}
+\usepackage{titlesec}
+\usepackage{pgfgantt}
+
+% ===== PAGE SETUP =====
+\geometry{left=2.5cm, right=2.5cm, top=2.5cm, bottom=2.5cm}
+\setlength{\parindent}{1.2em}
+\setlength{\parskip}{0.4em}
+
+% ===== COLORS =====
+\definecolor{primary}{HTML}{1B5E20}
+\definecolor{secondary}{HTML}{2E7D32}
+\definecolor{accent}{HTML}{00695C}
+\definecolor{highlight}{HTML}{E65100}
+\definecolor{lightbg}{HTML}{E8F5E9}
+\definecolor{lightaccent}{HTML}{E0F2F1}
+\definecolor{tableheader}{HTML}{1B5E20}
+\definecolor{tablerow1}{HTML}{F5F5F5}
+\definecolor{tablerow2}{HTML}{FFFFFF}
+\definecolor{phase1}{HTML}{1565C0}
+\definecolor{phase2}{HTML}{6A1B9A}
+\definecolor{phase3}{HTML}{E65100}
+\definecolor{phase4}{HTML}{2E7D32}
+\definecolor{done}{HTML}{4CAF50}
+\definecolor{inprog}{HTML}{FF9800}
+\definecolor{todo}{HTML}{9E9E9E}
+
+% ===== HEADER/FOOTER =====
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\color{primary}\textit{Kế Hoạch Nghiên Cứu — GEDA}}
+\fancyhead[R]{\small\color{primary}\textit{Natural Disaster Classification}}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.5pt}
+\renewcommand{\headrule}{\hbox to\headwidth{\color{primary}\leaders\hrule height \headrulewidth\hfill}}
+
+% ===== SECTION STYLING =====
+\titleformat{\section}{\Large\bfseries\color{primary}}{\thesection}{1em}{}[\color{primary}\titlerule]
+\titleformat{\subsection}{\large\bfseries\color{secondary}}{\thesubsection}{1em}{}
+\titleformat{\subsubsection}{\normalsize\bfseries\color{accent}}{\thesubsubsection}{1em}{}
+
+% ===== TCOLORBOX STYLES =====
+\newtcolorbox{goalbox}[1][]{
+  enhanced, breakable,
+  colback=lightbg, colframe=primary,
+  fonttitle=\bfseries\color{white},
+  title=#1, coltitle=white, colbacktitle=primary,
+  boxrule=0.8pt, arc=3pt,
+  left=8pt, right=8pt, top=6pt, bottom=6pt
+}
+
+\newtcolorbox{taskbox}[1][]{
+  enhanced, breakable,
+  colback=lightaccent, colframe=accent,
+  fonttitle=\bfseries\color{white},
+  title=#1, coltitle=white, colbacktitle=accent,
+  boxrule=0.8pt, arc=3pt,
+  left=8pt, right=8pt, top=6pt, bottom=6pt
+}
+
+\newtcolorbox{riskbox}[1][]{
+  enhanced, breakable,
+  colback=orange!5, colframe=highlight,
+  fonttitle=\bfseries\color{white},
+  title=#1, coltitle=white, colbacktitle=highlight,
+  boxrule=0.8pt, arc=3pt,
+  left=8pt, right=8pt, top=6pt, bottom=6pt
+}
+
+% ===== HYPERREF =====
+\hypersetup{
+  colorlinks=true, linkcolor=primary, urlcolor=accent, citecolor=secondary,
+  pdftitle={GEDA Research Project Plan},
+  pdfauthor={CrisisSpot Research Team}
+}
+
+\begin{document}
+
+% ========== TITLE PAGE ==========
+\begin{titlepage}
+\begin{center}
+\vspace*{1cm}
+
+\begin{tikzpicture}
+  \fill[primary] (0,0) rectangle (\textwidth, 0.4);
+\end{tikzpicture}
+
+\vspace{1.5cm}
+{\Huge\bfseries\color{primary} Kế Hoạch Nghiên Cứu}
+
+\vspace{0.6cm}
+{\Large\color{secondary} Graph-Enhanced Differential Attention\\cho Phân Loại Thảm Hoạ Thiên Nhiên\\Đa Phương Thức trên Mạng Xã Hội}
+
+\vspace{1cm}
+\begin{tikzpicture}
+  \fill[accent] (0,0) rectangle (8cm, 0.15);
+\end{tikzpicture}
+
+\vspace{1cm}
+{\large\color{primary}\textbf{Tên dự án:} GEDA — Graph-Enhanced Differential Attention}\\[0.4cm]
+{\normalsize
+\textbf{Lĩnh vực:} Multimodal Machine Learning $\times$ Natural Disaster Response\\[0.2cm]
+\textbf{Dataset:} CrisisMMD v2.0 (7 natural disasters, 20K tweets)\\[0.2cm]
+\textbf{Stack:} Python $\cdot$ PyTorch $\cdot$ CLIP $\cdot$ GraphSAGE $\cdot$ FAISS $\cdot$ Google Colab\\[0.2cm]
+\textbf{Dựa trên:} IEEE Access 2025 (GNN) + CVPRw MMFM 2025 (DiffAttn)
+}
+
+\vspace{1.2cm}
+{\large Dự án: \textbf{CrisisSummarization}}\\[0.3cm]
+{\normalsize Ngày lập kế hoạch: 04/03/2026}
+
+\vfill
+\begin{tikzpicture}
+  \fill[primary] (0,0) rectangle (\textwidth, 0.4);
+\end{tikzpicture}
+\end{center}
+\end{titlepage}
+
+% ========== TOC ==========
+\tableofcontents
+\newpage
+
+% ================================================================
+% SECTION 1: TỔNG QUAN DỰ ÁN
+% ================================================================
+\section{Tổng Quan Dự Án}
+
+\subsection{Tầm Nhìn}
+
+\begin{goalbox}[Tầm nhìn dự án]
+Xây dựng hệ thống \textbf{phân loại thảm hoạ thiên nhiên đa phương thức} trên mạng xã hội, kết hợp sức mạnh của \textbf{Graph Neural Networks} (học từ cấu trúc dữ liệu) và \textbf{Differential Attention} (lọc nhiễu thích ứng), đạt SOTA trên CrisisMMD v2.0 trong điều kiện few-shot, hướng tới ứng dụng thực tế hỗ trợ ứng phó thảm hoạ.
+\end{goalbox}
+
+\subsection{Phạm Vi Nghiên Cứu}
+
+\begin{table}[H]
+\centering
+\caption{Phạm vi nghiên cứu}
+\rowcolors{2}{tablerow1}{tablerow2}
+\begin{tabularx}{\textwidth}{>{\bfseries}l X}
+\toprule
+\rowcolor{tableheader}
+\textcolor{white}{\textbf{Hạng mục}} & \textcolor{white}{\textbf{Chi tiết}} \\
+\midrule
+Loại thảm hoạ & Thiên nhiên: bão, động đất, lũ lụt, cháy rừng \\
+Dataset & CrisisMMD v2.0 (7 events, 20K tweets) \\
+Tasks & Task 1: Informativeness $\cdot$ Task 2: Humanitarian $\cdot$ Task 3: Damage Severity \\
+Few-shot settings & 50, 100, 250, 500 labeled samples \\
+Modalities & Text (tweets) + Image (photos) \\
+Ngoài phạm vi & Biểu tình chính trị (7Sept), dịch bệnh, tấn công mạng \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Mục Tiêu Cụ Thể}
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{MT1:} Xây dựng kiến trúc GEDA kết hợp GNN + Attention, đạt F1 cao hơn cả 2 baselines trên ít nhất 2/3 tasks
+  \item \textbf{MT2:} Giải quyết scalability ($O(n^2) \rightarrow O(n \log n)$) bằng FAISS
+  \item \textbf{MT3:} Thiết kế Multi-task Learning pipeline train cả 3 tasks đồng thời
+  \item \textbf{MT4:} Đánh giá cross-disaster-type generalization (leave-one-type-out)
+  \item \textbf{MT5:} Đảm bảo statistical rigor: 5 seeds, CI, significance tests cho mọi kết quả
+\end{enumerate}
+
+% ================================================================
+% SECTION 2: KIẾN TRÚC ĐỀ XUẤT
+% ================================================================
+\section{Kiến Trúc GEDA}
+
+\subsection{Sơ Đồ Tổng Thể}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  node distance=0.85cm,
+  block/.style={rectangle, draw=#1, fill=#1!8, text width=7cm, minimum height=0.85cm, align=center, rounded corners=2pt, font=\footnotesize\bfseries},
+  phase/.style={font=\tiny\color{gray!70}, align=left},
+  arrow/.style={-{Stealth[length=2.5mm]}, thick, color=primary!70}
+]
+  % Input
+  \node[block=primary] (input) {Social Media Post: Image $I$ + Text $T$};
+  
+  % Stage 1: Knowledge Fusion
+  \node[block=phase2, below=of input] (kf) {Stage 1: LLaVA Knowledge Fusion};
+  \node[phase, left=0.3cm of kf] {từ Paper 2};
+  
+  % Stage 2: Feature Extraction
+  \node[block=phase1, below=of kf] (clip) {Stage 2: CLIP Feature Extraction (frozen)};
+  \node[phase, left=0.3cm of clip] {chung};
+
+  % Stage 3: Dimensionality Reduction
+  \node[block=phase1, below=of clip] (pca) {Stage 3: PCA Reduction $\rightarrow$ 256d per modality};
+  \node[phase, left=0.3cm of pca] {từ Paper 1};
+  
+  % Stage 4: Graph Construction
+  \node[block=phase3, below=of pca] {Stage 4: FAISS k-NN Graph Construction ($k$=16)};
+  \node[phase, left=0.3cm of pca.south west, yshift=-0.85cm] (s4l) {\textcolor{highlight}{\textbf{MỚI}}};
+  
+  % Stage 5: Graph Learning
+  \node[block=phase1, below=2cm of pca] (gnn) {Stage 5: GraphSAGE (2 layers $\times$ 512d)};
+  \node[phase, left=0.3cm of gnn] {từ Paper 1};
+  
+  % Stage 6: Attention Stack
+  \node[block=phase2, below=of gnn] (attn) {Stage 6: Self-Attn $\rightarrow$ GCA $\rightarrow$ Adaptive DiffAttn};
+  \node[phase, left=0.3cm of attn] {từ Paper 2};
+  
+  % Stage 7: Multi-task Head
+  \node[block=phase3, below=of attn] (mtl) {Stage 7: Multi-task Classification (Task 1 + 2 + 3)};
+  \node[phase, left=0.3cm of mtl] {\textcolor{highlight}{\textbf{MỚI}}};
+  
+  % Arrows
+  \draw[arrow] (input) -- (kf);
+  \draw[arrow] (kf) -- (clip);
+  \draw[arrow] (clip) -- (pca);
+  \draw[arrow] (pca) -- ++(0,-0.85);
+  \draw[arrow] ([yshift=0.42cm]gnn.north) -- (gnn);
+  \draw[arrow] (gnn) -- (attn);
+  \draw[arrow] (attn) -- (mtl);
+  
+  % Brace for "Novel"
+  \draw[decorate,decoration={brace,amplitude=8pt,mirror},thick,primary] 
+    ([xshift=4.5cm]gnn.north east) -- ([xshift=4.5cm]mtl.south east)
+    node[midway,right=10pt,font=\small\bfseries\color{primary}] {GEDA Core};
+\end{tikzpicture}
+\caption{Kiến trúc GEDA đề xuất — 7 stages}
+\label{fig:geda-full}
+\end{figure}
+
+\subsection{Loss Function}
+
+\begin{equation}
+\boxed{
+\mathcal{L}_{\text{GEDA}} = \underbrace{\sum_{t=1}^{3} \lambda_t \cdot \text{FocalLoss}_t}_{\text{Multi-task}} + \underbrace{\alpha \cdot \mathcal{L}_{\text{contrastive}}}_{\text{Shared repr.}} + \underbrace{\beta \cdot \mathcal{L}_{\text{graph}}}_{\text{Graph consistency}}
+}
+\end{equation}
+
+\begin{table}[H]
+\centering
+\caption{Tham số Loss Function}
+\rowcolors{2}{tablerow1}{tablerow2}
+\begin{tabular}{llll}
+\toprule
+\rowcolor{tableheader}
+\textcolor{white}{\textbf{Tham số}} & \textcolor{white}{\textbf{Ý nghĩa}} & \textcolor{white}{\textbf{Giá trị khởi đầu}} & \textcolor{white}{\textbf{Tunable?}} \\
+\midrule
+$\lambda_1$ & Weight Task 1 (Informativeness) & 0.4 & Grid search \\
+$\lambda_2$ & Weight Task 2 (Humanitarian) & 0.3 & Grid search \\
+$\lambda_3$ & Weight Task 3 (Damage) & 0.3 & Grid search \\
+$\alpha$ & Contrastive regularization & 0.1 & Fixed \\
+$\beta$ & Graph consistency & 0.05 & Fixed \\
+$\gamma$ & Focal Loss focusing param & 2.0 & Ablation \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Adaptive $\lambda$ cho DiffAttn}
+
+Thay $\lambda$ cố định bằng input-dependent:
+\begin{equation}
+\lambda(x) = \sigma\!\left(\text{MLP}\!\left(\text{concat}(f_I^{\text{graph}}, f_T^{\text{graph}})\right)\right)
+\end{equation}
+
+Điểm mới: $\lambda$ nhận \textbf{graph-enhanced features} thay vì raw CLIP features $\rightarrow$ context-aware noise cancellation.
+
+% ================================================================
+% SECTION 3: KẾ HOẠCH THỰC NGHIỆM
+% ================================================================
+\section{Kế Hoạch Thực Nghiệm}
+
+\subsection{Experiment 1: Reproduce Baselines + GEDA Comparison (MT1, MT5)}
+
+\begin{taskbox}[Exp 1 — Baseline Reproduction \& GEDA Comparison]
+\textbf{Mục tiêu:} Reproduce cả 2 baselines, sau đó so sánh với GEDA trên cùng framework\\
+\textbf{Trạng thái:} \textcolor{done}{$\checkmark$ Evaluation framework} $\cdot$ \textcolor{done}{$\checkmark$ Colab notebook} $\cdot$ \textcolor{inprog}{$\triangleright$ Chạy baselines} $\cdot$ \textcolor{todo}{$\square$ GEDA}\\[0.3cm]
+\begin{tabular}{llll}
+\toprule
+\textbf{Model} & \textbf{Protocol} & \textbf{Report} & \textbf{Status} \\
+\midrule
+Paper 1 (GNN) & 4 sizes $\times$ 10 splits = 40 runs & wF1, bAcc $\pm$ std, CI & \textcolor{inprog}{Sẵn sàng chạy} \\
+Paper 2 (DiffAttn) & 3 tasks $\times$ 5 seeds = 15 runs & wF1, Acc $\pm$ std, CI & \textcolor{inprog}{Sẵn sàng chạy} \\
+\textbf{GEDA (ours)} & 3 tasks $\times$ 5 seeds $\times$ 4 sizes & All metrics $\pm$ std, CI & \textcolor{todo}{Chờ implement} \\
+\bottomrule
+\end{tabular}
+\\[0.3cm]
+\textbf{Đã hoàn thành:}
+\begin{itemize}[nosep]
+  \item \textcolor{done}{$\checkmark$} Evaluation framework: CI, paired t-test, Bonferroni, Cohen's d
+  \item \textcolor{done}{$\checkmark$} Colab notebook \texttt{GEDA\_Baseline\_Comparison.ipynb}: 8 phases tự động
+  \item \textcolor{done}{$\checkmark$} Gap analysis: sửa 9 lỗi tham số Paper 1 (arch, fusion, epochs...)
+  \item \textcolor{done}{$\checkmark$} Runner script \texttt{geda\_colab\_runner.py}: pipeline tổng quát
+\end{itemize}
+\textbf{Output:} \texttt{all\_results.csv} + plots + LaTeX tables tự động
+\end{taskbox}
+
+\subsection{Experiment 2: GEDA Architecture Ablation (MT1)}
+
+\begin{taskbox}[Exp 2 — Ablation Study]
+\textbf{Mục tiêu:} Chứng minh mỗi component đóng góp giá trị\\[0.3cm]
+\begin{tabular}{clccc}
+\toprule
+\rowcolor{tableheader}
+\textcolor{white}{\#} & \textcolor{white}{\textbf{Variant}} & \textcolor{white}{\textbf{Graph}} & \textcolor{white}{\textbf{Attention}} & \textcolor{white}{\textbf{MTL}} \\
+\midrule
+A1 & CLIP + Linear (baseline) & $\times$ & $\times$ & $\times$ \\
+A2 & CLIP + GNN only (Paper 1) & \checkmark & $\times$ & $\times$ \\
+A3 & CLIP + Attention only (Paper 2) & $\times$ & \checkmark & $\times$ \\
+A4 & GNN + Self-Attn & \checkmark & SA & $\times$ \\
+A5 & GNN + SA + GCA & \checkmark & SA+GCA & $\times$ \\
+A6 & GNN + SA + GCA + DiffAttn & \checkmark & Full & $\times$ \\
+A7 & \textbf{GEDA Full (A6 + MTL)} & \checkmark & Full & \checkmark \\
+\bottomrule
+\end{tabular}
+\\[0.3cm]
+\textbf{Expected:} A1 $<$ A2 $\approx$ A3 $<$ A4 $<$ A5 $<$ A6 $<$ A7
+\end{taskbox}
+
+\subsection{Experiment 3: FAISS Scalability (MT2)}
+
+\begin{taskbox}[Exp 3 — FAISS vs Brute-force]
+\textbf{Mục tiêu:} Chứng minh FAISS giữ accuracy trong khi giảm complexity\\[0.3cm]
+\begin{tabular}{llll}
+\toprule
+\textbf{Method} & \textbf{Recall@16} & \textbf{Memory} & \textbf{Build Time} \\
+\midrule
+Brute-force cosine & 100\% (exact) & $O(n^2)$ & baseline \\
+FAISS IVF (nlist=100) & Target: $\geq$95\% & $O(n)$ & measure \\
+FAISS HNSW & Target: $\geq$98\% & $O(n \log n)$ & measure \\
+\bottomrule
+\end{tabular}
+\\[0.3cm]
+\textbf{Acceptance:} Recall@16 $\geq$ 95\% AND F1 drop $<$ 1\%
+\end{taskbox}
+
+\subsection{Experiment 4: Few-shot Performance (MT1)}
+
+\begin{taskbox}[Exp 4 — Few-shot Comparison]
+So sánh GEDA vs baselines trên 4 settings:
+\\[0.3cm]
+\begin{tabular}{lccccc}
+\toprule
+\rowcolor{tableheader}
+\textcolor{white}{\textbf{Model}} & \textcolor{white}{\textbf{50}} & \textcolor{white}{\textbf{100}} & \textcolor{white}{\textbf{250}} & \textcolor{white}{\textbf{500}} & \textcolor{white}{\textbf{Avg}} \\
+\midrule
+Paper 1 (GNN) & $\square$ & $\square$ & $\square$ & $\square$ & $\square$ \\
+Paper 2 (DiffAttn) & $\square$ & $\square$ & $\square$ & $\square$ & $\square$ \\
+\textbf{GEDA (ours)} & $\square$ & $\square$ & $\square$ & $\square$ & $\square$ \\
+\bottomrule
+\end{tabular}
+\\[0.3cm]
+$\times$ 3 tasks $\times$ 5 seeds = \textbf{180 experiment runs} tổng cộng\\
+\textbf{Statistical test:} Paired t-test (p $<$ 0.05) với Bonferroni correction
+\end{taskbox}
+
+\subsection{Experiment 5: Cross-Disaster-Type (MT4)}
+
+\begin{taskbox}[Exp 5 — Leave-one-TYPE-out]
+\textbf{Mục tiêu:} Đánh giá generalization across natural disaster types
+\\[0.3cm]
+\begin{tabular}{llll}
+\toprule
+\rowcolor{tableheader}
+\textcolor{white}{\textbf{Exp}} & \textcolor{white}{\textbf{Train Types}} & \textcolor{white}{\textbf{Test Type}} & \textcolor{white}{\textbf{F1}} \\
+\midrule
+5A & Earthquake + Wildfire + Flood & \textbf{Hurricane} & $\square$ \\
+5B & Hurricane + Wildfire + Flood & \textbf{Earthquake} & $\square$ \\
+5C & Hurricane + Earthquake + Flood & \textbf{Wildfire} & $\square$ \\
+5D & Hurricane + Earthquake + Wildfire & \textbf{Flood} & $\square$ \\
+\bottomrule
+\end{tabular}
+\\[0.3cm]
+\textbf{Bonus:} So sánh GEDA vs Paper 1 vs Paper 2 trên cùng splits
+\end{taskbox}
+
+% ================================================================
+% SECTION 4: DELIVERABLES
+% ================================================================
+\section{Sản Phẩm Đầu Ra (Deliverables)}
+
+\begin{table}[H]
+\centering
+\caption{Danh sách deliverables theo phase}
+\rowcolors{2}{tablerow1}{tablerow2}
+\begin{tabularx}{\textwidth}{c l X c}
+\toprule
+\rowcolor{tableheader}
+\textcolor{white}{\#} & \textcolor{white}{\textbf{Deliverable}} & \textcolor{white}{\textbf{Mô tả}} & \textcolor{white}{\textbf{Phase}} \\
+\midrule
+D1 & \texttt{baseline\_5seeds.csv} & Kết quả 2 baselines, 5 seeds, 3 tasks, 4 settings & P1 \\
+D2 & \texttt{geda\_model.py} & Code kiến trúc GEDA (PyTorch) & P2 \\
+D3 & \texttt{faiss\_graph.py} & Module graph construction với FAISS & P2 \\
+D4 & \texttt{mtl\_trainer.py} & Multi-task training loop + Focal Loss & P2 \\
+D5 & \texttt{ablation\_results.csv} & Kết quả 7 variants ablation study & P2 \\
+D6 & \texttt{cross\_type\_results.csv} & Kết quả 4 leave-one-type-out experiments & P3 \\
+D7 & \texttt{geda\_notebook.ipynb} & Colab notebook chạy end-to-end & P3 \\
+D8 & Bài báo nghiên cứu & LaTeX paper submission-ready & P4 \\
+D9 & Code release & GitHub repo public + README & P4 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+% ================================================================
+% SECTION 5: TIMELINE
+% ================================================================
+\section{Timeline}
+
+\subsection{Tổng Quan 4 Phases}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  phase/.style={rectangle, rounded corners=4pt, minimum width=3.5cm, minimum height=1.5cm, align=center, font=\small\bfseries, text=white},
+  arrow/.style={-{Stealth[length=3mm]}, thick, color=gray!60},
+  label/.style={font=\tiny, color=gray}
+]
+  \node[phase, fill=phase1] (p1) {Phase 1\\Foundations\\2--3 tuần};
+  \node[phase, fill=phase2, right=0.8cm of p1] (p2) {Phase 2\\Core GEDA\\3--4 tuần};
+  \node[phase, fill=phase3, right=0.8cm of p2] (p3) {Phase 3\\Evaluation\\2--3 tuần};
+  \node[phase, fill=phase4, right=0.8cm of p3] (p4) {Phase 4\\Paper\\2--3 tuần};
+  
+  \draw[arrow] (p1) -- (p2);
+  \draw[arrow] (p2) -- (p3);
+  \draw[arrow] (p3) -- (p4);
+  
+  \node[label, below=0.2cm of p1] {Tuần 1--3};
+  \node[label, below=0.2cm of p2] {Tuần 4--7};
+  \node[label, below=0.2cm of p3] {Tuần 8--10};
+  \node[label, below=0.2cm of p4] {Tuần 11--13};
+\end{tikzpicture}
+\caption{4 phases của dự án ($\sim$13 tuần)}
+\end{figure}
+
+\subsection{Chi Tiết Từng Phase}
+
+\subsubsection{Phase 1: Foundations (Tuần 1--3)}
+
+\begin{table}[H]
+\centering
+\rowcolors{2}{tablerow1}{tablerow2}
+\begin{tabularx}{\textwidth}{c X c c c}
+\toprule
+\rowcolor{phase1!90}
+\textcolor{white}{\textbf{\#}} & \textcolor{white}{\textbf{Task}} & \textcolor{white}{\textbf{Tuần}} & \textcolor{white}{\textbf{Output}} & \textcolor{white}{\textbf{Status}} \\
+\midrule
+1.1 & Reproduce Paper 1 (GNN) -- 4 sizes $\times$ 10 splits & 1 & D1 & \textcolor{inprog}{$\triangleright$} \\
+1.2 & Reproduce Paper 2 (DiffAttn) -- 3 tasks $\times$ 5 seeds & 1 & D1 & \textcolor{inprog}{$\triangleright$} \\
+1.3 & Setup evaluation framework (CI, paired t-test, Cohen's d) & 1 & Script & \textcolor{done}{$\checkmark$} \\
+1.4 & Implement Focal Loss + class-weighted sampling & 2 & Module & \textcolor{todo}{$\square$} \\
+1.5 & FAISS benchmark: Recall@k vs brute-force & 2 & D3 & \textcolor{todo}{$\square$} \\
+1.6 & Chuẩn bị CrisisMMD data loaders cho MTL & 2--3 & Module & \textcolor{todo}{$\square$} \\
+1.7 & Viết unit tests cho graph construction & 3 & Tests & \textcolor{todo}{$\square$} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsubsection{Phase 2: Core GEDA Implementation (Tuần 4--7)}
+
+\begin{table}[H]
+\centering
+\rowcolors{2}{tablerow1}{tablerow2}
+\begin{tabularx}{\textwidth}{c X c c}
+\toprule
+\rowcolor{phase2!90}
+\textcolor{white}{\textbf{\#}} & \textcolor{white}{\textbf{Task}} & \textcolor{white}{\textbf{Tuần}} & \textcolor{white}{\textbf{Output}} \\
+\midrule
+2.1 & Implement GEDA model: GNN + Attention stack & 4 & D2 \\
+2.2 & Implement Adaptive $\lambda(x)$ cho DiffAttn & 4 & D2 \\
+2.3 & Implement Multi-task training loop & 5 & D4 \\
+2.4 & Hyperparameter tuning ($\lambda_1, \lambda_2, \lambda_3, \gamma, k$) & 5 & Config \\
+2.5 & Ablation study: 7 variants $\times$ 5 seeds & 6 & D5 \\
+2.6 & Few-shot comparison: GEDA vs baselines & 6--7 & Results \\
+2.7 & Debug + optimize training pipeline & 7 & D7 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsubsection{Phase 3: Advanced Evaluation (Tuần 8--10)}
+
+\begin{table}[H]
+\centering
+\rowcolors{2}{tablerow1}{tablerow2}
+\begin{tabularx}{\textwidth}{c X c c}
+\toprule
+\rowcolor{phase3!90}
+\textcolor{white}{\textbf{\#}} & \textcolor{white}{\textbf{Task}} & \textcolor{white}{\textbf{Tuần}} & \textcolor{white}{\textbf{Output}} \\
+\midrule
+3.1 & Cross-disaster-type experiments (4 splits) & 8 & D6 \\
+3.2 & Adaptive $\lambda$ analysis: task-specific vs global & 8--9 & Analysis \\
+3.3 & Confusion matrix + per-class P/R/F1 & 9 & Tables \\
+3.4 & Latency benchmark (training + inference) & 9 & Benchmark \\
+3.5 & Error analysis: failure cases visualization & 10 & Figures \\
+3.6 & Statistical significance tests cho tất cả comparisons & 10 & Report \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsubsection{Phase 4: Paper Writing + Release (Tuần 11--13)}
+
+\begin{table}[H]
+\centering
+\rowcolors{2}{tablerow1}{tablerow2}
+\begin{tabularx}{\textwidth}{c X c c}
+\toprule
+\rowcolor{phase4!90}
+\textcolor{white}{\textbf{\#}} & \textcolor{white}{\textbf{Task}} & \textcolor{white}{\textbf{Tuần}} & \textcolor{white}{\textbf{Output}} \\
+\midrule
+4.1 & Viết paper: Introduction, Related Work, Method & 11 & D8 \\
+4.2 & Viết paper: Experiments, Results, Discussion & 12 & D8 \\
+4.3 & Tạo figures, tables, diagrams cho paper & 12 & Figures \\
+4.4 & Code cleanup + documentation + README & 12--13 & D9 \\
+4.5 & Internal review + revision & 13 & D8 final \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+% ================================================================
+% SECTION 6: COMPUTE RESOURCES
+% ================================================================
+\section{Tài Nguyên Compute}
+
+\begin{table}[H]
+\centering
+\caption{Ước tính tài nguyên compute}
+\rowcolors{2}{tablerow1}{tablerow2}
+\begin{tabularx}{\textwidth}{l X c c}
+\toprule
+\rowcolor{tableheader}
+\textcolor{white}{\textbf{Experiment}} & \textcolor{white}{\textbf{Chi tiết}} & \textcolor{white}{\textbf{GPU Hours}} & \textcolor{white}{\textbf{Platform}} \\
+\midrule
+Baseline reproduce & 2 models $\times$ 5 seeds $\times$ 4 settings $\times$ 3 tasks & $\sim$40h & Colab \\
+GEDA ablation & 7 variants $\times$ 5 seeds $\times$ 1 setting & $\sim$35h & Colab \\
+Few-shot full & 1 model $\times$ 5 seeds $\times$ 4 settings $\times$ 3 tasks & $\sim$60h & Colab \\
+Cross-type & 4 splits $\times$ 5 seeds $\times$ 3 models & $\sim$30h & Colab \\
+Hyperparameter & Grid search $\sim$50 configs & $\sim$25h & Colab \\
+\midrule
+\textbf{Tổng} & & \textbf{$\sim$190h} & \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{riskbox}[Lưu ý Compute]
+Google Colab Free: $\sim$4h/session. Colab Pro: $\sim$24h/session.\\
+Ước tính: $\sim$190 GPU hours $\approx$ \textbf{8 ngày liên tục} (L4 GPU) hoặc $\sim$48 Colab Free sessions.\\
+\textbf{Khuyến nghị:} Sử dụng Colab Pro ($\sim$\$10/tháng) để đảm bảo tiến độ.
+\end{riskbox}
+
+% ================================================================
+% SECTION 7: RISK MANAGEMENT
+% ================================================================
+\section{Quản Lý Rủi Ro}
+
+\begin{table}[H]
+\centering
+\caption{Ma trận rủiро và phương án giảm thiểu}
+\rowcolors{2}{tablerow1}{tablerow2}
+\begin{tabularx}{\textwidth}{c X c c X}
+\toprule
+\rowcolor{tableheader}
+\textcolor{white}{\#} & \textcolor{white}{\textbf{Rủi ro}} & \textcolor{white}{\textbf{P}} & \textcolor{white}{\textbf{I}} & \textcolor{white}{\textbf{Giảm thiểu}} \\
+\midrule
+R1 & GEDA không outperform baselines & 30\% & High & Ablation sẽ chỉ ra component nào yếu; điều chỉnh \\
+R2 & Colab GPU timeout giữa chừng & 50\% & Med & Checkpoint mỗi epoch; resume training \\
+R3 & FAISS accuracy drop quá lớn & 20\% & Med & Benchmark trước; fallback brute-force nếu cần \\
+R4 & Class imbalance làm metrics lệch & 40\% & High & Focal Loss + class weights + report per-class \\
+R5 & CrisisMMD quá nhỏ cho MTL & 35\% & High & Data augmentation + pseudo-labels \\
+R6 & Thời gian vượt 13 tuần & 40\% & Med & Ưu tiên MT1 + MT5; cắt bỏ Phase 3.5, 3.6 nếu cần \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+% ================================================================
+% SECTION 8: SUCCESS CRITERIA
+% ================================================================
+\section{Tiêu Chí Thành Công}
+
+\begin{table}[H]
+\centering
+\caption{Tiêu chí thành công cho từng mục tiêu}
+\rowcolors{2}{tablerow1}{tablerow2}
+\begin{tabularx}{\textwidth}{c X X c}
+\toprule
+\rowcolor{tableheader}
+\textcolor{white}{\textbf{MT}} & \textcolor{white}{\textbf{Mục tiêu}} & \textcolor{white}{\textbf{Tiêu chí}} & \textcolor{white}{\textbf{Must/Nice}} \\
+\midrule
+MT1 & GEDA outperform baselines & F1 cao hơn trên $\geq$ 2/3 tasks, $p < 0.05$ & \textbf{Must} \\
+MT2 & Scalability & Recall@16 $\geq$ 95\%, F1 drop $<$ 1\% & Must \\
+MT3 & Multi-task Learning & MTL $\geq$ single-task trên $\geq$ 2/3 tasks & Must \\
+MT4 & Cross-type generalization & F1 $>$ random baseline trên held-out type & Nice \\
+MT5 & Statistical rigor & 5 seeds, CI, sig. tests cho mọi results & \textbf{Must} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{goalbox}[Minimum Viable Research (MVR)]
+Nếu thời gian hạn chế, \textbf{MVR} bao gồm:
+\begin{enumerate}
+  \item Baselines reproduce với 5 seeds (Exp 1) — \textbf{Bắt buộc}
+  \item GEDA implementation + ablation (Exp 2) — \textbf{Bắt buộc}
+  \item Few-shot comparison trên CrisisMMD (Exp 4) — \textbf{Bắt buộc}
+  \item Statistical analysis (CI + tests) — \textbf{Bắt buộc}
+\end{enumerate}
+Exp 3 (FAISS) và Exp 5 (Cross-type) có thể defer nếu cần.
+\end{goalbox}
+
+% ================================================================
+% SECTION 9: NEXT STEPS
+% ================================================================
+\section{Bước Tiếp Theo Ngay Lập Tức}
+
+\begin{enumerate}[leftmargin=*]
+  \item \textcolor{done}{$\checkmark$} \textbf{DONE:} Setup evaluation framework
+    \begin{itemize}
+      \item Script tính CI, paired t-test, Bonferroni, Cohen's d
+      \item Template CSV thống nhất cho kết quả
+      \item Colab notebook + runner script đã sẵn sàng
+      \item Gap analysis: sửa 9 lỗi tham số Paper 1
+    \end{itemize}
+  \item \textcolor{inprog}{$\triangleright$} \textbf{ĐANG LÀM:} Chạy baselines trên Colab
+    \begin{itemize}
+      \item Upload \texttt{GEDA\_Baseline\_Comparison.ipynb} lên Colab
+      \item Chạy Phase 1--5: Paper 2 (15 runs) + Paper 1 (40 runs)
+      \item Phase 6: Phân tích kết quả, so sánh với paper reported values
+    \end{itemize}
+  \item \textcolor{todo}{$\square$} \textbf{TIẾP THEO:} Implement GEDA model
+    \begin{itemize}
+      \item Xây dựng \texttt{geda\_model.py}: GNN $\rightarrow$ Self-Attn $\rightarrow$ GCA $\rightarrow$ DiffAttn
+      \item Thêm GEDA vào notebook Phase 7 để so sánh trực tiếp
+      \item Chạy 3 tasks $\times$ 5 seeds $\times$ 4 few-shot sizes
+    \end{itemize}
+  \item \textcolor{todo}{$\square$} \textbf{SAU ĐÓ:} Ablation study (7 variants $\times$ 5 seeds)
+\end{enumerate}
+
+\vspace{0.5cm}
+
+\begin{goalbox}[Cam kết]
+Dự án nghiên cứu này hướng tới đóng góp \textbf{novelty chính}: kết hợp noise handling ở \textit{instance-level} (graph propagation) và \textit{feature-level} (differential attention) --- hai cơ chế bổ trợ nhau mà chưa paper nào khai thác, tập trung hoàn toàn vào bài toán \textbf{phân loại thảm hoạ thiên nhiên đa phương thức} có tính ứng dụng cao trong emergency management.
+\end{goalbox}
+
+\end{document}
