@@ -125,8 +125,8 @@ def extract_clip_features_with_domain(dataset_path, task="task1",
     tokenizer = open_clip.get_tokenizer("ViT-B-32")
     model = model.to(device).eval()
 
-    img_col = [c for c in df.columns
-               if 'image' in c.lower() and 'label' not in c.lower()][0]
+    img_candidates = [c for c in df.columns if ('image' in c.lower() or 'img' in c.lower()) and 'label' not in c.lower() and 'id' not in c.lower()]
+    img_col = 'image' if 'image' in df.columns else ('image_path' if 'image_path' in df.columns else img_candidates[0])
     txt_col = [c for c in df.columns
                if 'text' in c.lower() and 'label' not in c.lower()
                and 'llava' not in c.lower()][0]
