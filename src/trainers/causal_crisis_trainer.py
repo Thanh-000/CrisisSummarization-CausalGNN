@@ -243,7 +243,7 @@ def build_knn_graph(features, k=16, use_faiss=True, as_sparse=True):
         indices_tensor = torch.tensor([rows, cols], dtype=torch.long)
         values_tensor = torch.ones(len(rows), dtype=torch.float32)
         
-        adj = torch.sparse_coo_tensor(indices_tensor, values_tensor, (n, n))
+        adj = torch.sparse_coo_tensor(indices_tensor, values_tensor, (n, n)).coalesce()
         
         # Row normalization
         deg = torch.sparse.sum(adj, dim=1).to_dense() # (n,)
@@ -255,7 +255,7 @@ def build_knn_graph(features, k=16, use_faiss=True, as_sparse=True):
         r = adj.indices()[0]
         v_norm = v * deg_inv[r]
         
-        adj_normalized = torch.sparse_coo_tensor(adj.indices(), v_norm, (n, n))
+        adj_normalized = torch.sparse_coo_tensor(adj.indices(), v_norm, (n, n)).coalesce()
         return adj_normalized
     else:
         adj = np.zeros((n, n), dtype=np.float32)
