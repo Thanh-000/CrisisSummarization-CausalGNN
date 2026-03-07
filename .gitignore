@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyTorch Checkpoints and Saved Data
+*.pt
+*.pth
+*.ckpt
+*.h5
+
+# Project Data and Outputs
+/data/raw/*
+!/data/raw/.gitkeep
+/data/processed/*
+!/data/processed/.gitkeep
+/checkpoints/*
+!/checkpoints/.gitkeep
+/results/*
+!/results/.gitkeep
+/logs/
+
+# IDE and OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+.ipynb_checkpoints/
+
+# Virtual Environment
+venv/
+env/
+.env
+
+# CLIP feature caches
+*.npy
+*.npz
