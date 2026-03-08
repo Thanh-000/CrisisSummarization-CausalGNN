@@ -544,11 +544,20 @@ class CausalCrisisTrainer:
                         c_v_np = out_tmp["c_v"].cpu().numpy()
                         c_t_np = out_tmp["c_t"].cpu().numpy()
                         causal_feat_concat = np.concatenate([c_v_np, c_t_np], axis=1)
-                        # Force graph in eval to keep consistent type? No, we return sparse if default
+                        # Force graph in eval to keep consistent type
                         adj = build_knn_graph(causal_feat_concat, k=k_neighbors).to(self.device)
                         del out_tmp
                         torch.cuda.empty_cache() if self.device == "cuda" else None
-                        print(f"  Graph rebuilt successfully.")
+                        print(f"  Graph rebuilt successfully. Restarting learning rate for Phase 2!")
+                        
+                        # Reset learning rate so model can actually learn from the new graph! 
+                        # Otherwise early plateau makes LR=1e-6 -> model dead.
+                        initial_lr = 1e-4
+                        for param_group in self.optimizer.param_groups:
+                            param_group['lr'] = initial_lr if param_group['weight_decay'] > 0 else initial_lr
+                        # Reset early stopping trackers
+                        best_hm_f1 = 0.0
+                        patience_counter = 0
             
             metrics = self.train_epoch(
                 img_feat, txt_feat, labels, adj,
