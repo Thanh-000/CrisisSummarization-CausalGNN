@@ -302,7 +302,7 @@ class CausalCrisisTrainer:
         lr=1e-4,
         weight_decay=1e-3,
         max_epochs=500,
-        patience=100,
+        patience=150,
         checkpoint_dir="/content/causal_results/checkpoints",
     ):
         self.model = model.to(device)
@@ -583,8 +583,12 @@ class CausalCrisisTrainer:
                 )
 
             if patience_counter >= self.patience:
-                print(f"  Early stopping at epoch {epoch+1}")
-                break
+                if epoch < 50 and use_causal_graph:
+                    # Do not early stop before the causal graph is even rebuilt!
+                    patience_counter = self.patience - 5
+                else:
+                    print(f"  Early stopping at epoch {epoch+1}")
+                    break
 
         elapsed = time.time() - t0
 
@@ -651,7 +655,7 @@ def run_causal_experiment(
     causal_dim=256,
     pca_dim=256,
     max_epochs=500,
-    patience=30,  # Giam patience xuong 30 ket hop voi ReduceLR de early stopping hieu qua hon
+    patience=150,  # Match the paper's default order of magnitude for better convergence
     lr=1e-4,
     device="cuda",
     results_csv="/content/causal_results/all_results.csv",
