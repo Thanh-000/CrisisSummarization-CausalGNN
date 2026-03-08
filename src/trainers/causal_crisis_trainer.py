@@ -507,7 +507,7 @@ class CausalCrisisTrainer:
         labeled_mask = labeled_mask.to(self.device)
         test_mask = test_mask.to(self.device)
 
-        best_hm_f1 = 0
+        best_val_f1 = 0
         patience_counter = 0
         best_state = None
         history = []
@@ -557,7 +557,7 @@ class CausalCrisisTrainer:
                         for param_group in self.optimizer.param_groups:
                             param_group['lr'] = initial_lr if param_group['weight_decay'] > 0 else initial_lr
                         # Reset early stopping trackers
-                        best_hm_f1 = 0.0
+                        best_val_f1 = 0.0
                         patience_counter = 0
             
             metrics = self.train_epoch(
@@ -567,12 +567,12 @@ class CausalCrisisTrainer:
             )
             history.append(metrics)
             
-            # ReduceLROnPlateau scheduler step (with hm_f1)
-            self.scheduler.step(metrics["hm_f1"])
+            # ReduceLROnPlateau scheduler step (with val_f1)
+            self.scheduler.step(metrics["val_f1"])
 
             # Early stopping
-            if metrics["hm_f1"] > best_hm_f1:
-                best_hm_f1 = metrics["hm_f1"]
+            if metrics["val_f1"] > best_val_f1:
+                best_val_f1 = metrics["val_f1"]
                 patience_counter = 0
                 best_state = {
                     k: v.cpu().clone()
