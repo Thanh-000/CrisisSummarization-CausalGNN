@@ -744,6 +744,11 @@ class CausalCrisisLoss(nn.Module):
         n = c.shape[0]
         if n <= 1:
             return torch.tensor(0.0, device=c.device)
+            
+        # Issue 37: L2 Normalize features to prevent HSIC trace explosion
+        c = F.normalize(c, dim=-1)
+        s = F.normalize(s, dim=-1)
+        
         K = c @ c.T
         L = s @ s.T
         H = torch.eye(n, device=c.device) - 1.0/n

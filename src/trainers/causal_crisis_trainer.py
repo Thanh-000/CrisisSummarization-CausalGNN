@@ -910,6 +910,8 @@ def run_causal_all_experiments(
     use_causal=True,
     use_intervention=True,
     use_causal_graph=True,
+    use_graph=True,
+    use_attention=True,
 ):
     """Chay tat ca CausalCrisis experiments."""
     total = len(seeds) * len(tasks) * len(few_shot_sizes)
@@ -951,8 +953,8 @@ def run_causal_all_experiments(
                         device=device,
                         results_csv=results_csv,
                         variant_name=variant_name,
-                        use_graph=True,
-                        use_attention=True,
+                        use_graph=use_graph,
+                        use_attention=use_attention,
                         use_mtl=False,    # Disable MTL default vi data truyen vao la Single-Task
                         use_causal=use_causal,
                         use_intervention=use_intervention,
@@ -999,6 +1001,7 @@ def run_ablation_suite(
             dataset_path=dataset_path, seeds=seeds, tasks=tasks, few_shot_sizes=few_shot_sizes,
             device=device, results_csv=results_csv, variant_name=v["name"],
             use_causal=v["causal"], use_intervention=v["int"], use_causal_graph=v["causal"],
+            use_graph=v["graph"], use_attention=v["attn"],
         )
 
 def run_lodo_all_experiments(
