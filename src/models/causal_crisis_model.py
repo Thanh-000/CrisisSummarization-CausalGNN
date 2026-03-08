@@ -786,10 +786,10 @@ class CausalCrisisLoss(nn.Module):
     ) -> torch.Tensor:
         """
         L_int: P(y|C_vt) ≈ P(y|do(C_vt)).
-        KL Divergence dam bao prediction on dinh khi intervention.
+        KL Divergence distills unbiased intervened features prediction into the original features.
         """
-        p = F.softmax(logits_original.detach(), dim=-1)
-        q = F.log_softmax(logits_intervened, dim=-1)
+        p = F.softmax(logits_intervened.detach(), dim=-1)
+        q = F.log_softmax(logits_original, dim=-1)
         return F.kl_div(q, p, reduction='batchmean')
 
     def forward(

@@ -332,7 +332,7 @@ class CausalCrisisTrainer:
         )
         self._val_split = None  # Cache validation_split thay vi shuffle tung epoch
 
-    def _shuffle_split(self, n_labeled, train_frac=0.4):
+    def _shuffle_split(self, n_labeled, train_frac=0.8):
         """Paper 1 style: split label data dung de tinh loss va evaluate."""
         if self._val_split is not None:
              return self._val_split
