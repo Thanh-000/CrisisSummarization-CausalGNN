@@ -740,7 +740,8 @@ class CausalCrisisLoss(nn.Module):
             self.alpha_recon = 0.05; self.alpha_int = 0.2
 
     def orthogonal_loss(self, c: torch.Tensor, s: torch.Tensor) -> torch.Tensor:
-        """HSIC: kiem tra statistical independence, khong chi linear (Issue 36)."""
+        """HSIC: kiem tra statistical independence, khong chi linear (Issue 36).
+        Efficient O(N^2) trace computation without explicitly forming H."""
         n = c.shape[0]
         if n <= 1:
             return torch.tensor(0.0, device=c.device)
@@ -751,8 +752,12 @@ class CausalCrisisLoss(nn.Module):
         
         K = c @ c.T
         L = s @ s.T
-        H = torch.eye(n, device=c.device) - 1.0/n
-        return (K @ H @ L @ H).trace() / ((n-1)**2)
+        
+        # Efficient centering (K H L H trace equivalent)
+        Kc = K - K.mean(dim=0, keepdim=True) - K.mean(dim=1, keepdim=True) + K.mean()
+        Lc = L - L.mean(dim=0, keepdim=True) - L.mean(dim=1, keepdim=True) + L.mean()
+        
+        return (Kc * Lc).sum() / ((n-1)**2)
 
     def reconstruction_loss(self, original: torch.Tensor,
                             reconstructed: torch.Tensor) -> torch.Tensor:
@@ -821,17 +826,10 @@ class CausalCrisisLoss(nn.Module):
         # ── L_adv: Adversarial domain loss ──
         if "domain_cv" in outputs and domain_labels is not None:
             dom = domain_labels
-            if mask is not None:
-                dom = domain_labels[mask]
-                d_cv = outputs["domain_cv"][mask]
-                d_ct = outputs["domain_ct"][mask]
-                d_sv = outputs["domain_sv"][mask]
-                d_st = outputs["domain_st"][mask]
-            else:
-                d_cv = outputs["domain_cv"]
-                d_ct = outputs["domain_ct"]
-                d_sv = outputs["domain_sv"]
-                d_st = outputs["domain_st"]
+            d_cv = outputs["domain_cv"]
+            d_ct = outputs["domain_ct"]
+            d_sv = outputs["domain_sv"]
+            d_st = outputs["domain_st"]
 
             if len(dom) > 0:
                 # Causal branches: GRL da dao gradient => entropy loss pushes randomness
@@ -848,9 +846,7 @@ class CausalCrisisLoss(nn.Module):
         if "c_v" in outputs:
             c_v, s_v = outputs["c_v"], outputs["s_v"]
             c_t, s_t = outputs["c_t"], outputs["s_t"]
-            if mask is not None:
-                c_v, s_v = c_v[mask], s_v[mask]
-                c_t, s_t = c_t[mask], s_t[mask]
+            
             if len(c_v) > 0:
                 l_orth = self.orthogonal_loss(c_v, s_v) + self.orthogonal_loss(c_t, s_t)
                 total = total + self.alpha_orth * l_orth
@@ -860,12 +856,10 @@ class CausalCrisisLoss(nn.Module):
         if "h_img_recon" in outputs:
             h_ir, h_io = outputs["h_img_recon"], outputs["h_img_orig"]
             h_tr, h_to = outputs["h_txt_recon"], outputs["h_txt_orig"]
-            if mask is not None:
-                h_ir, h_io = h_ir[mask], h_io[mask]
-                h_tr, h_to = h_tr[mask], h_to[mask]
+            
             if len(h_ir) > 0:
-                l_recon = (self.reconstruction_loss(h_io, h_ir)
-                           + self.reconstruction_loss(h_to, h_tr))
+                l_recon = (self.reconstruction_loss(h_io, h_ir).mean()
+                           + self.reconstruction_loss(h_to, h_tr).mean())
                 total = total + self.alpha_recon * l_recon
                 losses["recon"] = l_recon.item()
 
