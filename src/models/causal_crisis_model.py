@@ -268,7 +268,7 @@ class DomainClassifier(nn.Module):
         return self.net(features)
 
 
-def compute_grl_lambda(epoch: int, max_epochs: int, warmup=10, max_lambda=0.7, gamma=5) -> float:
+def compute_grl_lambda(epoch: int, max_epochs: int, warmup=10, max_lambda=0.5, gamma=5) -> float:
     """
     Tang dan lambda tu 0 -> max_lambda theo duong cong sigmoid sau giai doan warmup.
     Ban dau: cho model on dinh truoc (0.0).
@@ -360,7 +360,7 @@ class CausalIntervention(nn.Module):
         weighted_centroids = (domain_weights.unsqueeze(1) * self.centroids).sum(0)  # (feat_dim,)
         
         # We perform adjustment to inject marginalized domain prior gently without shrinking signal
-        adjustment = weighted_centroids.unsqueeze(0)                         # (1, feat_dim)
+        adjustment = weighted_centroids.unsqueeze(0) - c_vt                         # (B, feat_dim)
 
         c_vt_do = c_vt + self.mix_ratio * adjustment
         return c_vt_do
@@ -745,14 +745,14 @@ class CausalCrisisLoss(nn.Module):
         """Thay doi trong so cac ham loss theo phase. Increased alpha_recon to prevent info loss."""
         # Note: L_recon uses MSE over 512 dims, produces ~0.005. Needs large alpha!
         if phase == 1:    # Epoch 0-50: focus classification
-            self.alpha_adv = 0.1; self.alpha_orth = 0.05
-            self.alpha_recon = 5.0; self.alpha_int = 0.0
+            self.alpha_adv = 0.05; self.alpha_orth = 0.01
+            self.alpha_recon = 0.5; self.alpha_int = 0.0
         elif phase == 2:  # Epoch 50-120: them causal
-            self.alpha_adv = 0.5; self.alpha_orth = 0.2
-            self.alpha_recon = 5.0; self.alpha_int = 0.1
+            self.alpha_adv = 0.2; self.alpha_orth = 0.1
+            self.alpha_recon = 1.0; self.alpha_int = 0.1
         else:             # Phase 3: fine-tune
-            self.alpha_adv = 1.0; self.alpha_orth = 0.3
-            self.alpha_recon = 5.0; self.alpha_int = 0.2
+            self.alpha_adv = 0.3; self.alpha_orth = 0.2
+            self.alpha_recon = 1.0; self.alpha_int = 0.2
 
     def orthogonal_loss(self, c: torch.Tensor, s: torch.Tensor) -> torch.Tensor:
         """HSIC: kiem tra statistical independence, khong chi linear (Issue 36).
