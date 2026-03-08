@@ -482,9 +482,6 @@ class CausalCrisisModel(nn.Module):
                 mix_ratio=intervention_mix,
             )
 
-        # ── Stage 3d: DiffAttn (GEDA giu nguyen) ──
-        if use_attention:
-            self.diff_attn = AdaptiveDiffAttention(classifier_dim, dropout)
 
         # Re-calculate classifier_dim based on final feature size
         gnn_output_dim = gnn_input_dim
