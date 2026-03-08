@@ -818,16 +818,10 @@ def run_causal_experiment(
     criterion = CausalCrisisLoss(gamma=task_gamma)
     criterion.focal.weight = class_weights_tensor
 
-    # Freeze attention if n_labeled <= 100
-    if n_labeled <= 100 and use_attention:
-        print("  [INFO] Freezing SelfAttention and DiffAttn Lambda for low N.")
-        for param in model.self_attn_img.parameters():
-            param.requires_grad = False
-        for param in model.self_attn_txt.parameters():
-            param.requires_grad = False
-        for param in model.diff_attn.lambda_net.parameters():
-            param.requires_grad = False
-
+    # BUG FIX: DO NOT freeze randomly initialized attention modules. 
+    # Freezing random nn.Linear layers scrambles features into permanent noise.
+    # We remove the block that sets requires_grad = False for SelfAttention.
+    
     # --- 6. Train ---
     results_dir = os.path.dirname(results_csv)
     os.makedirs(results_dir, exist_ok=True)

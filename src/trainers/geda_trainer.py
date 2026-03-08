@@ -604,14 +604,10 @@ def run_geda_experiment(
     criterion = GEDALoss()
     criterion.focal.weight = class_weights_tensor
 
-    # Freeze attention if n_labeled <= 100 to prevent overfitting
-    if n_labeled <= 100 and use_attention:
-        print("  [INFO] Freezing SelfAttention branches for low N.")
-        for param in model.self_attn_img.parameters():
-            param.requires_grad = False
-        for param in model.self_attn_txt.parameters():
-            param.requires_grad = False
-
+    # BUG FIX: DO NOT freeze randomly initialized attention modules. 
+    # Freezing random nn.Linear layers scrambles features into permanent noise.
+    # We remove the block that sets requires_grad = False for SelfAttention.
+    
     # --- 6. Train ---
     trainer = GEDATrainer(
         model=model,
