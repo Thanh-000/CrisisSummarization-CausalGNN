@@ -330,31 +330,28 @@ class CausalIntervention(nn.Module):
             self.counts[d] += mask.sum()
 
     def forward(self, c_vt: torch.Tensor,
-                domains: torch.Tensor) -> torch.Tensor:
+                domains: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
         Backdoor Adjustment:
-          do(C_vt) ≈ C_vt + mix_ratio * sum_d w_d * (centroid_d - C_vt)
-
-        Args:
-            c_vt: (B, feature_dim) cross-modal causal features
-            domains: (B,) domain labels
-        Returns:
-            c_vt_do: (B, feature_dim) intervened features
+          do(C_vt) ≈ C_vt + mix_ratio * sum_d P(d) * (centroid_d - C_vt)
+        
+        Applies during BOTH training and inference to avoid distribution shift.
         """
-        if not self.training:
-            return c_vt  # Inference: khong intervention
-
-        # Update memory bank
-        self.update_memory(c_vt.detach(), domains)
+        if self.training and domains is not None:
+            # Update memory bank
+            self.update_memory(c_vt.detach(), domains)
 
         # Compute domain weights P(D=d)
         total = self.counts.sum()
         if total == 0:
             return c_vt
+            
         domain_weights = self.counts / (total + 1e-8)  # (num_domains,)
 
-        # Vectorized backdoor adjustment (thay the for-loop cham)
+        # Vectorized backdoor adjustment
         weighted_centroids = (domain_weights.unsqueeze(1) * self.centroids).sum(0)  # (feat_dim,)
+        
+        # We perform adjustment to inject marginalized domain prior gently
         adjustment = weighted_centroids.unsqueeze(0) - c_vt                         # (B, feat_dim)
 
         c_vt_do = c_vt + self.mix_ratio * adjustment
@@ -456,17 +453,22 @@ class CausalCrisisModel(nn.Module):
         if use_attention:
             self.self_attn_img = SelfAttention(gnn_input_dim, dropout)
             self.self_attn_txt = SelfAttention(gnn_input_dim, dropout)
+            self.norm_img = nn.LayerNorm(gnn_input_dim)
+            self.norm_txt = nn.LayerNorm(gnn_input_dim)
+            
             self.gca = GuidedCrossAttention(gnn_input_dim, dropout)
-            classifier_dim = gnn_input_dim * 2
-        else:
-            classifier_dim = gnn_input_dim * 2
+            self.norm_gca = nn.LayerNorm(gnn_input_dim * 2)
+            
+            # DiffAttn can act directly on concatenated features
+            self.diff_attn = AdaptiveDiffAttention(gnn_input_dim * 2, dropout)
+            self.norm_diff = nn.LayerNorm(gnn_input_dim * 2)
 
         # ── Stage 3c: Causal Intervention (MOI) ──
         # Guard: intervention chi co y nghia khi co attention (C_vt)
         if self.use_intervention:
             print("  [Init] Enabled CausalIntervention")
             self.causal_intervention = CausalIntervention(
-                feature_dim=causal_dim * 2 if use_causal else hidden_dim * 2, # GCA output dim
+                feature_dim=gnn_input_dim * 2, # GCA output dim
                 num_domains=num_domains,
                 momentum=intervention_momentum,
                 mix_ratio=intervention_mix,
@@ -627,22 +629,21 @@ class CausalCrisisModel(nn.Module):
 
         # ── Stage 3b: Attention Stack ──
         if self.use_attention:
-            # RESIDUAL CONNECTIONS: Causal features are fragile. 
-            # Passing them through dense attention layers without residuals destroys causality.
+            # RESIDUAL CONNECTIONS with LayerNorm: Causal features are fragile. 
             feat_img_attn = self.self_attn_img(feat_img)
             feat_txt_attn = self.self_attn_txt(feat_txt)
-            feat_img = feat_img + feat_img_attn
-            feat_txt = feat_txt + feat_txt_attn
+            feat_img = self.norm_img(feat_img + feat_img_attn)
+            feat_txt = self.norm_txt(feat_txt + feat_txt_attn)
             
             c_vt_attn = self.gca(feat_img, feat_txt)  # (B, causal_dim*2 = 512)
-            c_vt = torch.cat([feat_img, feat_txt], dim=-1) + c_vt_attn
+            c_vt = self.norm_gca(torch.cat([feat_img, feat_txt], dim=-1) + c_vt_attn)
             
             outputs["c_vt_original"] = c_vt
 
             # ── Stage 3c: Causal Intervention (do-calculus) ──
+            # Intervention should always run (train and test) to prevent distribution shift
             if (self.use_causal and self.use_intervention
-                    and self.use_attention and domain_labels is not None
-                    and hasattr(self, 'causal_intervention')):
+                    and self.use_attention and hasattr(self, 'causal_intervention')):
                 c_vt_do = self.causal_intervention(c_vt, domain_labels)
                 outputs["c_vt_intervened"] = c_vt_do
             else:
@@ -650,7 +651,7 @@ class CausalCrisisModel(nn.Module):
 
             # ── Stage 3d: DiffAttn (implicit causal intervention) ──
             z_attn = self.diff_attn(c_vt_do)  # (B, 512)
-            z = c_vt_do + z_attn
+            z = self.norm_diff(c_vt_do + z_attn)
         else:
             z = torch.cat([feat_img, feat_txt], dim=-1)
 
