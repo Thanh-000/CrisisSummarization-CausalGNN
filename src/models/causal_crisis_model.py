@@ -627,9 +627,16 @@ class CausalCrisisModel(nn.Module):
 
         # ── Stage 3b: Attention Stack ──
         if self.use_attention:
-            feat_img = self.self_attn_img(feat_img)
-            feat_txt = self.self_attn_txt(feat_txt)
-            c_vt = self.gca(feat_img, feat_txt)  # (B, causal_dim*2 = 512)
+            # RESIDUAL CONNECTIONS: Causal features are fragile. 
+            # Passing them through dense attention layers without residuals destroys causality.
+            feat_img_attn = self.self_attn_img(feat_img)
+            feat_txt_attn = self.self_attn_txt(feat_txt)
+            feat_img = feat_img + feat_img_attn
+            feat_txt = feat_txt + feat_txt_attn
+            
+            c_vt_attn = self.gca(feat_img, feat_txt)  # (B, causal_dim*2 = 512)
+            c_vt = torch.cat([feat_img, feat_txt], dim=-1) + c_vt_attn
+            
             outputs["c_vt_original"] = c_vt
 
             # ── Stage 3c: Causal Intervention (do-calculus) ──
@@ -642,7 +649,8 @@ class CausalCrisisModel(nn.Module):
                 c_vt_do = c_vt
 
             # ── Stage 3d: DiffAttn (implicit causal intervention) ──
-            z = self.diff_attn(c_vt_do)  # (B, 512)
+            z_attn = self.diff_attn(c_vt_do)  # (B, 512)
+            z = c_vt_do + z_attn
         else:
             z = torch.cat([feat_img, feat_txt], dim=-1)
 
