@@ -268,7 +268,7 @@ class DomainClassifier(nn.Module):
         return self.net(features)
 
 
-def compute_grl_lambda(epoch: int, max_epochs: int, warmup=10, max_lambda=0.3, gamma=5) -> float:
+def compute_grl_lambda(epoch: int, max_epochs: int, warmup=10, max_lambda=0.7, gamma=5) -> float:
     """
     Tang dan lambda tu 0 -> max_lambda theo duong cong sigmoid sau giai doan warmup.
     Ban dau: cho model on dinh truoc (0.0).
@@ -409,7 +409,7 @@ class CausalCrisisModel(nn.Module):
         use_causal: bool = True,
         use_intervention: bool = True,
         intervention_momentum: float = 0.9,
-        intervention_mix: float = 0.1,
+        intervention_mix: float = 0.3,
     ):
         super().__init__()
         self.use_graph = use_graph
