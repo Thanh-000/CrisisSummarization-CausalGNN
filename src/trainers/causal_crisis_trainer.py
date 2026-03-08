@@ -637,7 +637,7 @@ class CausalCrisisTrainer:
             "test_results": test_results,
             "train_time_s": elapsed,
             "epochs": epoch + 1,
-            "best_hm_f1": best_hm_f1,
+            "best_val_f1": best_val_f1,
         }
 
 
