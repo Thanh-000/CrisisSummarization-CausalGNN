@@ -518,19 +518,18 @@ class CausalCrisisTrainer:
         print(f"  Max epochs: {self.max_epochs}, Patience: {self.patience}")
         print(f"  Model: CausalCrisis (causal={self.model.use_causal})")
         print(f"{'='*60}")
-
         t0 = time.time()
 
         from ..models.causal_crisis_model import compute_grl_lambda
 
         for epoch in range(self.max_epochs):
-            # Cap nhat phase cho loss weighting
-            if epoch < 50:
-                self.criterion.set_phase(1)
-            elif epoch < 120:
-                self.criterion.set_phase(2)
-            else:
-                self.criterion.set_phase(3)
+            if hasattr(self.criterion, "set_phase"):
+                if epoch < 50:
+                    self.criterion.set_phase(1)
+                elif epoch < 120:
+                    self.criterion.set_phase(2)
+                else:
+                    self.criterion.set_phase(3)
 
             # GRL lambda schedule: tang dan co warmup
             grl_lam = compute_grl_lambda(epoch, self.max_epochs)
