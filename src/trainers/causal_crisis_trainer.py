@@ -675,7 +675,7 @@ def run_causal_experiment(
     use_causal=True,
     use_intervention=True,
     variant_name="causal_full",
-    use_causal_graph=True,
+    use_causal_graph=False,
     lodo_event: str = None,  # Support cho Leave-One-Disaster-Out
 ):
     """
@@ -1011,7 +1011,7 @@ def run_ablation_suite(
         run_causal_all_experiments(
             dataset_path=dataset_path, seeds=seeds, tasks=tasks, few_shot_sizes=few_shot_sizes,
             device=device, results_csv=results_csv, variant_name=v["name"],
-            use_causal=v["causal"], use_intervention=v["int"], use_causal_graph=v["causal"],
+            use_causal=v["causal"], use_intervention=v["int"], use_causal_graph=False,
             use_graph=v["graph"], use_attention=v["attn"],
         )
 
