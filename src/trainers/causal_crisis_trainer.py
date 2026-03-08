@@ -380,10 +380,12 @@ class CausalCrisisTrainer:
                  # Lay task dau tien de lam target logits can ban
                  task_key = list(labels.keys())[0] if labels else task
                  
-                 z_orig = self.model.diff_attn(outputs["c_vt_original"])
+                 z_orig_attn = self.model.diff_attn(outputs["c_vt_original"])
+                 z_orig = self.model.norm_diff(outputs["c_vt_original"] + z_orig_attn)
                  logits_orig = getattr(self.model, f"head_{task_key}")(z_orig)
                  
-                 z_int = self.model.diff_attn(outputs["c_vt_intervened"])
+                 z_int_attn = self.model.diff_attn(outputs["c_vt_intervened"])
+                 z_int = self.model.norm_diff(outputs["c_vt_intervened"] + z_int_attn)
                  logits_int = getattr(self.model, f"head_{task_key}")(z_int)
 
                  l_int = self.criterion.intervention_consistency_loss(logits_orig, logits_int)
@@ -697,6 +699,9 @@ def run_causal_experiment(
     set_seed(seed)
     # Ha momentum cua memory bank the N (few-shot < 100 mau => giam Momentum -> centroid update gap cap)
     intervention_momentum = 0.5 if n_labeled <= 100 else 0.8
+
+    # Auto-disable intervention khi sample qua it (giai quyet bottleneck #2)
+    use_intervention = (n_labeled >= 250) and use_intervention
 
     print(f"\n{'='*60}")
     print(f"  CausalCrisis: {variant_name} | task={task} | seed={seed} | N={n_labeled}")

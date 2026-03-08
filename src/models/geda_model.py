@@ -22,22 +22,29 @@ from typing import Optional, Dict, Tuple
 # ============================================================
 
 class SelfAttention(nn.Module):
-    """Self-Attention: khu nhieu, lam noi bat dac trung quan trong."""
+    """Feature-wise Self-Attention via Squeeze-Excitation.
+    
+    Tao D attention scores (moi chieu 1 score) thay vi 1 scalar cho toan bo vector.
+    Bottleneck: D -> D//4 -> D de giam params va tang non-linearity.
+    """
 
     def __init__(self, dim: int, dropout: float = 0.1):
         super().__init__()
-        self.scale = dim ** -0.5
+        bottleneck = max(dim // 4, 32)
+        self.gate = nn.Sequential(
+            nn.Linear(dim, bottleneck),
+            nn.ReLU(),
+            nn.Linear(bottleneck, dim),
+            nn.Sigmoid(),
+        )
         self.proj = nn.Linear(dim, dim)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x: (B, D)
-        attn = torch.matmul(x.unsqueeze(1), x.unsqueeze(2))  # (B, 1, 1)
-        attn = attn * self.scale
-        attn = F.softmax(attn, dim=-1)
-        attn = self.dropout(attn)
-        out = self.proj(x)
-        return out
+        attn = self.gate(x)
+        out = attn * self.proj(x)
+        return self.dropout(out)
 
 
 class GuidedCrossAttention(nn.Module):
