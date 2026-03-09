@@ -845,7 +845,8 @@ def run_causal_experiment(
 
     # --- 4. Build graph ---
     k_base = {"task1": 16, "task2": 8, "task3": 12}.get(task, 16)
-    k_neighbors = min(k_base, max(3, n_labeled // 15))
+    n_for_k = 999999 if str(n_labeled).lower() == "all" else int(n_labeled)
+    k_neighbors = min(k_base, max(3, n_for_k // 15))
     
     print(f"  Building RAW kNN graph (k={k_neighbors}) initially...")
     all_feat_concat = np.concatenate([all_img_r, all_txt_r], axis=1)
