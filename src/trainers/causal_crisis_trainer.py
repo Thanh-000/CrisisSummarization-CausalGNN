@@ -78,6 +78,8 @@ def extract_clip_features_with_domain(dataset_path, task="task1",
         f"{dataset_path}/crisismmd_datasplit_settingA/{tsv_name}",
         f"{dataset_path}/crisismmd_datasplit_all/{tsv_name}",
         f"{dataset_path}/{tsv_name}",
+        # Add a direct path in case dataset_path already points inside the subfolder
+        f"{dataset_path}/crisismmd_datasplit_all/crisismmd_datasplit_all/{tsv_name}"
     ]
     tsv_path = None
     for c in candidates:
