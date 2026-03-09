@@ -573,7 +573,8 @@ class CausalCrisisTrainer:
         print(f"{'='*60}")
         t0 = time.time()
 
-        from ..models.causal_crisis_model import compute_grl_lambda
+        import models.causal_crisis_model as cc_models
+        compute_grl_lambda = cc_models.compute_grl_lambda
 
         for epoch in range(self.max_epochs):
             if hasattr(self.criterion, "set_phase"):
