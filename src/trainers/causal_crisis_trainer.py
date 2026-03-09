@@ -351,10 +351,33 @@ class CausalCrisisTrainer:
         )
         self._val_split = None  # Cache validation_split thay vi shuffle tung epoch
 
-    def _shuffle_split(self, n_labeled, train_frac=0.8):
-        """Paper 1 style: split label data dung de tinh loss va evaluate."""
+    def _shuffle_split(self, n_labeled, domain_labels, labeled_idx, train_frac=0.8):
+        """OOD Validation style: pick one domain as validation to prevent overfitting."""
         if self._val_split is not None:
              return self._val_split
+             
+        train_domains = domain_labels[labeled_idx]
+        unique_domains = train_domains.unique()
+        
+        if len(unique_domains) > 1:
+            # Count samples per domain
+            counts = [(d.item(), (train_domains == d).sum().item()) for d in unique_domains]
+            # Pick the smallest domain that has at least 5 samples (leave more data for training)
+            counts.sort(key=lambda x: x[1])
+            valid_counts = [x for x in counts if x[1] >= 5]
+            
+            if len(valid_counts) > 0:
+                val_domain = valid_counts[0][0]
+                val_mask = (train_domains == val_domain)
+                train_mask = ~val_mask
+                
+                train_idx_rel = torch.where(train_mask)[0]
+                val_idx_rel = torch.where(val_mask)[0]
+                self._val_split = (train_idx_rel, val_idx_rel)
+                print(f"  [OOD Val] Selected domain {val_domain} as validation set (size={len(val_idx_rel)})")
+                return self._val_split
+                
+        # Fallback to random split if only 1 domain or not enough samples
         perm = torch.randperm(n_labeled)
         n_train = int(n_labeled * train_frac)
         self._val_split = (perm[:n_train], perm[n_train:])
@@ -369,7 +392,7 @@ class CausalCrisisTrainer:
         # Shuffle split tren labeled data
         labeled_idx = torch.where(labeled_mask)[0]
         n_labeled = len(labeled_idx)
-        train_idx, val_idx = self._shuffle_split(n_labeled)
+        train_idx, val_idx = self._shuffle_split(n_labeled, domain_labels, labeled_idx)
         train_idx = labeled_idx[train_idx]
         val_idx = labeled_idx[val_idx]
 
@@ -762,7 +785,7 @@ def run_causal_experiment(
         test_idxs = np.where(all_events == lodo_event)[0]
         
         test_mask[test_idxs] = True
-        n_select = min(n_labeled, len(train_idxs))
+        n_select = len(train_idxs) if n_labeled == "all" else min(n_labeled, len(train_idxs))
         
         g_seed = torch.Generator()
         g_seed.manual_seed(seed)
@@ -784,7 +807,7 @@ def run_causal_experiment(
         
     else:
         test_mask[n_train:] = True
-        n_select = min(n_labeled, n_train)
+        n_select = n_train if n_labeled == "all" else min(n_labeled, n_train)
         g_seed = torch.Generator()
         g_seed.manual_seed(seed)
         perm = torch.randperm(n_train, generator=g_seed)[:n_select]
@@ -1036,8 +1059,9 @@ def run_ablation_suite(
 
 def run_lodo_all_experiments(
      dataset_path="/content/datasets/CrisisMMD_v2.0",
-     seeds=(42,), task="task1", size=500, device="cuda",
+     seeds=(42,), task="task1", size="all", device="cuda",
      results_csv="/content/causal_results/lodo_results.csv",
+     variants_to_run=None,
 ):
     """
     Leave-One-Disaster-Out Experiment to evaluate out-of-distribution generalization.
@@ -1054,13 +1078,17 @@ def run_lodo_all_experiments(
         {"name": "Causal_Full",   "causal": True,  "int": True,  "graph": True,  "attn": True},
     ]
     
+    if variants_to_run is not None:
+        variants = [v for v in variants if v["name"] in variants_to_run]
+        
     for v in variants:
         for evt in events:
             for s in seeds:
                  run_causal_experiment(
                      dataset_path=dataset_path, task=task, seed=s, n_labeled=size,
                      device=device, results_csv=results_csv, variant_name=v["name"],
-                     use_causal=v["causal"], use_intervention=v["int"], use_causal_graph=False,
+                     use_causal=v["causal"], use_intervention=v["int"], 
+                     use_causal_graph=v["causal"], # Turn on graph decoupling !!
                      use_graph=v["graph"], use_attention=v["attn"], lodo_event=evt
                  )
              

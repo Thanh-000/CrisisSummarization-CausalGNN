@@ -280,7 +280,7 @@ class DomainClassifier(nn.Module):
         return self.net(features)
 
 
-def compute_grl_lambda(epoch: int, max_epochs: int, warmup=10, max_lambda=0.5, gamma=5) -> float:
+def compute_grl_lambda(epoch: int, max_epochs: int, warmup=20, max_lambda=0.15, gamma=10) -> float:
     """Giữ nguyên api name để không lỗi file trainer tạm thời (dù không dùng GRL nữa). 
     Tuy nhiên trainer vẫn dùng hàm này cho loss weights nếu cần."""
     if epoch < warmup:
@@ -363,15 +363,20 @@ class CausalIntervention(nn.Module):
         if total == 0:
             return c_vt
             
-        domain_weights = self.counts / (total + 1e-8)  # (num_domains,)
-
-        # Vectorized backdoor adjustment
-        weighted_centroids = (domain_weights.unsqueeze(1) * self.centroids).sum(0)  # (feat_dim,)
+        # Hardest negative domain intervention (Contrastive):
+        # Find the domain centroid that is furthest from each sample
+        dists = torch.cdist(c_vt, self.centroids) # (B, num_domains)
         
-        # We perform adjustment to inject marginalized domain prior gently without shrinking signal
-        adjustment = weighted_centroids.unsqueeze(0) - c_vt                         # (B, feat_dim)
-
-        c_vt_do = c_vt + self.mix_ratio * adjustment
+        # Ignore uninitialized domains
+        invalid_mask = ~self.initialized
+        dists[:, invalid_mask] = -1.0
+        
+        # Get hardest negative centroid for each sample
+        furthest_idx = dists.argmax(dim=1)
+        hardest_negatives = self.centroids[furthest_idx]
+        
+        # Contrastive Intervention: push/pull towards hardest negative to make invariant
+        c_vt_do = c_vt + self.mix_ratio * (hardest_negatives - c_vt)
         return c_vt_do
 
 
@@ -708,13 +713,13 @@ class FocalLoss(nn.Module):
             return focal_loss.mean()
 
 
-def mmd_rbf(x, y, gamma=1.0):
+def mmd_rbf(x, y, gammas=[0.01, 0.1, 1.0, 10.0, 100.0]):
     """
-    Computes the RBF MMD (Maximum Mean Discrepancy) between two feature sets.
+    Computes the Multi-Kernel RBF MMD (Maximum Mean Discrepancy) between two feature sets.
     Args:
         x (torch.Tensor): Features from domain X (N, D)
         y (torch.Tensor): Features from domain Y (M, D)
-        gamma (float): Kernel parameter for RBF.
+        gammas (list): Kernel parameters for RBF.
     Returns:
         torch.Tensor: MMD value.
     """
@@ -725,14 +730,17 @@ def mmd_rbf(x, y, gamma=1.0):
     dyy = y_sq.transpose(0, 1) + y_sq - 2. * torch.matmul(y, y.transpose(0, 1))
     dxy = x_sq + y_sq - 2. * torch.matmul(x, y.transpose(0, 1))
 
-    kxx = torch.exp(-gamma * dxx)
-    kyy = torch.exp(-gamma * dyy)
-    kxy = torch.exp(-gamma * dxy)
+    total_mmd = 0.0
+    for gamma in gammas:
+        kxx = torch.exp(-gamma * dxx)
+        kyy = torch.exp(-gamma * dyy)
+        kxy = torch.exp(-gamma * dxy)
+        total_mmd += kxx.mean() + kyy.mean() - 2. * kxy.mean()
 
-    return kxx.mean() + kyy.mean() - 2. * kxy.mean()
+    return total_mmd
 
 
-def conditional_mmd_loss(features: torch.Tensor, domains: torch.Tensor, labels: torch.Tensor, gamma=1.0) -> torch.Tensor:
+def conditional_mmd_loss(features: torch.Tensor, domains: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
     """
     Computes Conditional MMD loss.
     The goal is to make causal features domain-invariant *within* each task label.
@@ -740,7 +748,6 @@ def conditional_mmd_loss(features: torch.Tensor, domains: torch.Tensor, labels: 
         features (torch.Tensor): Causal features (B, D)
         domains (torch.Tensor): Domain labels (B,)
         labels (torch.Tensor): Task labels (B,)
-        gamma (float): Kernel parameter for RBF.
     Returns:
         torch.Tensor: Conditional MMD loss.
     """
@@ -774,7 +781,7 @@ def conditional_mmd_loss(features: torch.Tensor, domains: torch.Tensor, labels: 
                 if mask1.sum() > 1 and mask2.sum() > 1: # Need at least 2 samples per domain to compute MMD
                     x = label_features[mask1]
                     y = label_features[mask2]
-                    loss += mmd_rbf(x, y, gamma)
+                    loss += mmd_rbf(x, y)
                     count += 1
     
     return loss / max(1, count) # Average MMD over all valid pairs
@@ -815,13 +822,13 @@ class CausalCrisisLoss(nn.Module):
         # Note: L_recon uses MSE over 512 dims, produces ~0.005. Needs large alpha!
         if phase == 1:    # Epoch 0-50: focus classification
             self.alpha_adv = 0.05; self.alpha_orth = 0.01
-            self.alpha_recon = 0.5; self.alpha_int = 0.0
+            self.alpha_recon = 1.0; self.alpha_int = 0.0
         elif phase == 2:  # Epoch 50-120: them causal
-            self.alpha_adv = 0.2; self.alpha_orth = 0.1
-            self.alpha_recon = 1.0; self.alpha_int = 0.1
+            self.alpha_adv = 0.1; self.alpha_orth = 0.05
+            self.alpha_recon = 2.0; self.alpha_int = 0.1
         else:             # Phase 3: fine-tune
-            self.alpha_adv = 0.3; self.alpha_orth = 0.2
-            self.alpha_recon = 1.0; self.alpha_int = 0.2
+            self.alpha_adv = 0.15; self.alpha_orth = 0.1
+            self.alpha_recon = 2.0; self.alpha_int = 0.2
 
     def orthogonal_loss(self, c: torch.Tensor, s: torch.Tensor) -> torch.Tensor:
         """HSIC: kiem tra statistical independence, khong chi linear (Issue 36).
