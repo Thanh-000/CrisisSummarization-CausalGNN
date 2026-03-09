@@ -751,8 +751,8 @@ def run_causal_experiment(
     hidden_dim=512,
     causal_dim=256,
     pca_dim=256,
-    max_epochs=500,
-    patience=150,  # Match the paper's default order of magnitude for better convergence
+    max_epochs=300,
+    patience=30,  # Reduced patience to 30 as model frequently plateaus early
     lr=1e-4,
     device="cuda",
     results_csv="/content/causal_results/all_results.csv",
