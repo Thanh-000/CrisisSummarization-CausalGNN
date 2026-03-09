@@ -169,8 +169,30 @@ def extract_clip_features_with_domain(dataset_path, task="task1",
             # Image
             batch_imgs = []
             current_batch_offset = 0
+            # Define potential base dirs to look for the image
+            base_candidates = [
+                dataset_path, 
+                os.path.dirname(dataset_path),
+                os.path.dirname(tsv_path) if tsv_path else "",
+                os.path.dirname(os.path.dirname(tsv_path)) if tsv_path else ""
+            ]
             for _, row in batch_df.iterrows():
-                img_path = f"{dataset_path}/{row[img_col]}"
+                # Attempt to find the real image path
+                img_path = None
+                img_suffix = str(row[img_col]).strip().strip("/") # E.g., data_image/abc/xyz.jpg
+                
+                for base in base_candidates:
+                    if not base:
+                        continue
+                    test_path = os.path.join(base, img_suffix)
+                    if os.path.exists(test_path):
+                        img_path = test_path
+                        break
+                
+                # If still not found, default to the original assumption to trigger the exception with the assumed path
+                if img_path is None:
+                    img_path = os.path.join(dataset_path, img_suffix)
+
                 try:
                     img = Image.open(img_path).convert("RGB")
                     img = preprocess(img)
