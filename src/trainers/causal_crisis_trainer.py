@@ -740,11 +740,12 @@ def run_causal_experiment(
 
     set_seed(seed)
     # Ha momentum cua memory bank the N (few-shot < 100 mau => giam Momentum -> centroid update gap cap)
-    is_all = isinstance(n_labeled, str) and n_labeled.lower() == "all"
-    intervention_momentum = 0.5 if (not is_all and n_labeled <= 100) else 0.8
+    is_all = str(n_labeled).lower() == "all"
+    n_val = 999999 if is_all else int(n_labeled)
+    intervention_momentum = 0.5 if n_val <= 100 else 0.8
 
     # Auto-disable intervention khi sample qua it (giai quyet bottleneck #2)
-    use_intervention = (is_all or n_labeled >= 250) and use_intervention
+    use_intervention = (n_val >= 250) and use_intervention
 
     print(f"\n{'='*60}")
     print(f"  CausalCrisis: {variant_name} | task={task} | seed={seed} | N={n_labeled}")
