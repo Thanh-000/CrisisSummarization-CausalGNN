@@ -817,18 +817,19 @@ class CausalCrisisLoss(nn.Module):
         self.label_smoothing = label_smoothing
         self.task_weights = task_weights
 
-    def set_phase(self, phase: int):
-        """Thay doi trong so cac ham loss theo phase. Increased alpha_recon to prevent info loss."""
-        # Note: L_recon uses MSE over 512 dims, produces ~0.005. Needs large alpha!
-        if phase == 1:    # Epoch 0-50: focus classification
-            self.alpha_adv = 0.05; self.alpha_orth = 0.01
-            self.alpha_recon = 1.0; self.alpha_int = 0.0
-        elif phase == 2:  # Epoch 50-120: them causal
-            self.alpha_adv = 0.1; self.alpha_orth = 0.05
-            self.alpha_recon = 2.0; self.alpha_int = 0.1
-        else:             # Phase 3: fine-tune
-            self.alpha_adv = 0.15; self.alpha_orth = 0.1
-            self.alpha_recon = 2.0; self.alpha_int = 0.2
+    def update_alpha(self, epoch: int, max_epochs: int):
+        """Update loss weights linearly (warmup) to prevent loss spikes (Issue 4)."""
+        # Reconstruction prevents info loss. Ramp from 1.0 to 2.0 early
+        self.alpha_recon = 1.0 + min(1.0, epoch / 50.0)
+        
+        # Adversarial and Orthogonal warmup along the entire run
+        progress = min(1.0, epoch / max_epochs)
+        self.alpha_adv = 0.05 + 0.10 * progress
+        self.alpha_orth = 0.01 + 0.09 * progress
+        
+        # Causal Intervention warmup: start slowly after epoch 50
+        int_progress = min(1.0, max(0.0, (epoch - 50) / 70.0))
+        self.alpha_int = 0.2 * int_progress
 
     def orthogonal_loss(self, c: torch.Tensor, s: torch.Tensor) -> torch.Tensor:
         """HSIC: kiem tra statistical independence, khong chi linear (Issue 36).

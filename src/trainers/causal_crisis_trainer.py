@@ -600,13 +600,8 @@ class CausalCrisisTrainer:
         compute_grl_lambda = cc_models.compute_grl_lambda
 
         for epoch in range(self.max_epochs):
-            if hasattr(self.criterion, "set_phase"):
-                if epoch < 50:
-                    self.criterion.set_phase(1)
-                elif epoch < 120:
-                    self.criterion.set_phase(2)
-                else:
-                    self.criterion.set_phase(3)
+            if hasattr(self.criterion, "update_alpha"):
+                self.criterion.update_alpha(epoch, self.max_epochs)
 
             # GRL lambda schedule: tang dan co warmup
             grl_lam = compute_grl_lambda(epoch, self.max_epochs)
