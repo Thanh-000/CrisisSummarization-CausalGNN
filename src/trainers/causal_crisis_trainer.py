@@ -74,20 +74,29 @@ def extract_clip_features_with_domain(dataset_path, task="task1",
                 zf.extractall(dataset_path)
             print(f"  ✅ Extracted to {extract_dir}")
 
-    candidates = [
-        f"{dataset_path}/crisismmd_datasplit_settingA/{tsv_name}",
-        f"{dataset_path}/crisismmd_datasplit_all/{tsv_name}",
-        f"{dataset_path}/{tsv_name}",
-        # Add a direct path in case dataset_path already points inside the subfolder
-        f"{dataset_path}/crisismmd_datasplit_all/crisismmd_datasplit_all/{tsv_name}"
-    ]
+    # Search for TSV recursively inside dataset_path to avoid path mismatch issues
+    import glob
+    search_pattern = f"{dataset_path}/**/{tsv_name}"
+    found_tsvs = glob.glob(search_pattern, recursive=True)
+    
     tsv_path = None
-    for c in candidates:
-        if os.path.exists(c):
-            tsv_path = c
-            break
+    if found_tsvs:
+        tsv_path = found_tsvs[0] # Pick the first match
+    else:
+        # Fallback to local hardcoded check if glob doesn't work for some reason
+        candidates = [
+            f"{dataset_path}/crisismmd_datasplit_settingA/{tsv_name}",
+            f"{dataset_path}/crisismmd_datasplit_all/{tsv_name}",
+            f"{dataset_path}/{tsv_name}",
+            f"{dataset_path}/crisismmd_datasplit_all/crisismmd_datasplit_all/{tsv_name}"
+        ]
+        for c in candidates:
+            if os.path.exists(c):
+                tsv_path = c
+                break
+
     if tsv_path is None:
-        raise FileNotFoundError(f"TSV not found in: {candidates}")
+        raise FileNotFoundError(f"TSV not found recursively in {dataset_path} or within standard paths.")
 
     import pandas as pd
     df = pd.read_csv(tsv_path, sep='\t')
