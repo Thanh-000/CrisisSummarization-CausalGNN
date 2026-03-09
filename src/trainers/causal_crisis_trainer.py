@@ -12,8 +12,10 @@ Pipeline: Extract CLIP -> PCA -> Causal Disentangle -> kNN graph (causal)
           -> Train CausalCrisis -> Evaluate
 """
 
-import os
 import sys
+# Add src/ to path so `import models...` works
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import time
 import json
 import csv
