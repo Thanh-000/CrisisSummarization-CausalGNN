@@ -123,8 +123,8 @@ class AdaptiveDiffAttention(nn.Module):
         super().__init__()
         assert dim % 2 == 0, "dim here is 2 * module_dim"
         self.single_dim = dim // 2
-        self.num_heads = num_heads
-        self.head_dim = self.single_dim // num_heads
+        self.num_heads = int(num_heads)
+        self.head_dim = int(self.single_dim // self.num_heads)
         
         self.W_Q1 = nn.Linear(self.single_dim, self.single_dim)
         self.W_K1 = nn.Linear(self.single_dim, self.single_dim)
@@ -481,7 +481,7 @@ class CausalCrisisModel(nn.Module):
             self.norm_gca = nn.LayerNorm(gnn_input_dim * 2)
             
             # DiffAttn can act directly on concatenated features
-            self.diff_attn = AdaptiveDiffAttention(gnn_input_dim * 2, dropout)
+            self.diff_attn = AdaptiveDiffAttention(gnn_input_dim * 2, num_heads=4, dropout=dropout)
             self.norm_diff = nn.LayerNorm(gnn_input_dim * 2)
 
         # ── Stage 3c: Causal Intervention (MOI) ──
