@@ -477,7 +477,7 @@ class CausalCrisisModel(nn.Module):
             self.norm_img = nn.LayerNorm(gnn_input_dim)
             self.norm_txt = nn.LayerNorm(gnn_input_dim)
             
-            self.gca = GuidedCrossAttention(gnn_input_dim, dropout)
+            self.gca = GuidedCrossAttention(gnn_input_dim, num_heads=4, dropout=dropout)
             self.norm_gca = nn.LayerNorm(gnn_input_dim * 2)
             
             # DiffAttn can act directly on concatenated features
