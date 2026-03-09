@@ -1036,7 +1036,7 @@ def run_ablation_suite(
 
 def run_lodo_all_experiments(
      dataset_path="/content/datasets/CrisisMMD_v2.0",
-     seeds=(42, 123, 456), task="task1", size=500, device="cuda",
+     seeds=(42,), task="task1", size=500, device="cuda",
      results_csv="/content/causal_results/lodo_results.csv",
 ):
     """
@@ -1044,15 +1044,25 @@ def run_lodo_all_experiments(
     """
     events = ['california_wildfires', 'hurricane_harvey', 'hurricane_irma', 
               'hurricane_maria', 'iraq_iran_earthquake', 'mexico_earthquake', 'srilanka_floods']
+              
+    variants = [
+        {"name": "GEDA_baseline", "causal": False, "int": False, "graph": True,  "attn": True},
+        {"name": "Causal_NoInt",  "causal": True,  "int": False, "graph": True,  "attn": True},
+        {"name": "Causal_Int",    "causal": True,  "int": True,  "graph": True,  "attn": True},
+        {"name": "Causal_NoGraph","causal": True,  "int": True,  "graph": False, "attn": True},
+        {"name": "Causal_NoAttn", "causal": True,  "int": True,  "graph": True,  "attn": False},
+        {"name": "Causal_Full",   "causal": True,  "int": True,  "graph": True,  "attn": True},
+    ]
     
-    for evt in events:
-        for s in seeds:
-             run_causal_experiment(
-                 dataset_path=dataset_path, task=task, seed=s, n_labeled=size,
-                 device=device, results_csv=results_csv, variant_name="causal_full",
-                 use_graph=True, use_attention=True, use_causal=True, use_intervention=True,
-                 use_causal_graph=True, lodo_event=evt
-             )
+    for v in variants:
+        for evt in events:
+            for s in seeds:
+                 run_causal_experiment(
+                     dataset_path=dataset_path, task=task, seed=s, n_labeled=size,
+                     device=device, results_csv=results_csv, variant_name=v["name"],
+                     use_causal=v["causal"], use_intervention=v["int"], use_causal_graph=False,
+                     use_graph=v["graph"], use_attention=v["attn"], lodo_event=evt
+                 )
              
 def compute_significance(results_csv, model_a, model_b, metric="weighted_f1"):
     import pandas as pd
