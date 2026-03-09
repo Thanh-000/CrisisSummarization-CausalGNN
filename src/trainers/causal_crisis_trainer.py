@@ -417,17 +417,14 @@ class CausalCrisisTrainer:
         return self._val_split
 
     def train_epoch(self, img_feat, txt_feat, labels, adj,
-                    domain_labels, labeled_mask, task="task1",
+                    domain_labels, train_mask, val_mask, task="task1",
                     grl_lambda=1.0):
-        """Train 1 epoch voi shuffle split + causal losses."""
+        """Train 1 epoch voi fixed val split + causal losses."""
         self.model.train()
 
-        # Shuffle split tren labeled data
-        labeled_idx = torch.where(labeled_mask)[0]
-        n_labeled = len(labeled_idx)
-        train_idx, val_idx = self._shuffle_split(n_labeled, domain_labels, labeled_idx)
-        train_idx = labeled_idx[train_idx]
-        val_idx = labeled_idx[val_idx]
+        # Shuffle split tren labeled data is now done beforehand
+        train_idx = torch.where(train_mask)[0]
+        val_idx = torch.where(val_mask)[0]
 
         # Forward pass (full graph)
         outputs = self.model(
@@ -567,7 +564,7 @@ class CausalCrisisTrainer:
         return results
 
     def train(self, img_feat, txt_feat, labels, adj,
-              domain_labels, labeled_mask, test_mask,
+              domain_labels, train_mask, test_mask, val_mask=None,
               task="task1", run_name="causal_crisis",
               use_causal_graph=True, k_neighbors=16):
         """
@@ -579,7 +576,11 @@ class CausalCrisisTrainer:
         adj = adj.to(self.device)
         labels = {t: l.to(self.device) for t, l in labels.items()}
         domain_labels = domain_labels.to(self.device)
-        labeled_mask = labeled_mask.to(self.device)
+        train_mask = train_mask.to(self.device)
+        if val_mask is not None:
+             val_mask = val_mask.to(self.device)
+        else:
+             val_mask = torch.zeros_like(train_mask)
         test_mask = test_mask.to(self.device)
 
         best_val_f1 = 0
@@ -589,7 +590,7 @@ class CausalCrisisTrainer:
 
         print(f"\n{'='*60}")
         print(f"  Training: {run_name}")
-        print(f"  Labeled: {labeled_mask.sum().item()}, Test: {test_mask.sum().item()}")
+        print(f"  Labeled: {train_mask.sum().item()}, Test: {test_mask.sum().item()}")
         print(f"  Max epochs: {self.max_epochs}, Patience: {self.patience}")
         print(f"  Model: CausalCrisis (causal={self.model.use_causal})")
         print(f"{'='*60}")
@@ -622,7 +623,7 @@ class CausalCrisisTrainer:
                         c_t_np = out_tmp["c_t"].cpu().numpy()
                         causal_feat_concat = np.concatenate([c_v_np, c_t_np], axis=1)
                         # pass labels[task] instead of dictionary labels to fix KeyError
-                        adj = build_knn_graph(causal_feat_concat, k=k_neighbors, labels=labels[task], labeled_mask=labeled_mask).to(self.device)
+                        adj = build_knn_graph(causal_feat_concat, k=k_neighbors, labels=labels[task], labeled_mask=train_mask).to(self.device)
                         del out_tmp
                         if self.device == "cuda":
                             torch.cuda.empty_cache()
@@ -639,7 +640,7 @@ class CausalCrisisTrainer:
             
             metrics = self.train_epoch(
                 img_feat, txt_feat, labels, adj,
-                domain_labels, labeled_mask,
+                domain_labels, train_mask, val_mask,
                 task=task, grl_lambda=grl_lam,
             )
             history.append(metrics)
@@ -867,6 +868,42 @@ def run_causal_experiment(
     all_img_r = all_img_r / (np.linalg.norm(all_img_r, axis=1, keepdims=True) + 1e-8)
     all_txt_r = all_txt_r / (np.linalg.norm(all_txt_r, axis=1, keepdims=True) + 1e-8)
 
+    # --- 3.5 OOD Split Logic (Moved from Trainer) ---
+    train_mask = labeled_mask.clone()
+    val_mask = torch.zeros(n_total, dtype=torch.bool)
+    
+    labeled_indices = torch.where(labeled_mask)[0]
+    train_domains = torch.tensor(all_domain_labels)[labeled_indices]
+    unique_domains = train_domains.unique()
+    
+    val_domain_picked = False
+    if len(unique_domains) > 1:
+        # Count samples per domain
+        counts = [(d.item(), (train_domains == d).sum().item()) for d in unique_domains]
+        counts.sort(key=lambda x: x[1])
+        valid_counts = [x for x in counts if x[1] >= 5]
+        
+        if len(valid_counts) > 0:
+            val_domain = valid_counts[0][0]
+            val_mask_rel = (train_domains == val_domain)
+            
+            val_idx_abs = labeled_indices[val_mask_rel]
+            val_mask[val_idx_abs] = True
+            train_mask[val_idx_abs] = False
+            val_domain_picked = True
+            print(f"  [OOD Val] Selected domain {val_domain} as validation set (size={len(val_idx_abs)})")
+            
+    if not val_domain_picked:
+        # Fallback random split
+        train_frac = 0.8
+        n_labeled_tot = len(labeled_indices)
+        perm = torch.randperm(n_labeled_tot, generator=torch.Generator().manual_seed(seed))
+        n_tr = int(n_labeled_tot * train_frac)
+        val_idx_rel = perm[n_tr:]
+        val_idx_abs = labeled_indices[val_idx_rel]
+        val_mask[val_idx_abs] = True
+        train_mask[val_idx_abs] = False
+
     # --- 4. Build graph ---
     k_base = {"task1": 16, "task2": 8, "task3": 12}.get(task, 16)
     n_for_k = 999999 if str(n_labeled).lower() == "all" else int(n_labeled)
@@ -874,7 +911,7 @@ def run_causal_experiment(
     
     print(f"  Building RAW kNN graph (k={k_neighbors}) initially...")
     all_feat_concat = np.concatenate([all_img_r, all_txt_r], axis=1)
-    adj = build_knn_graph(all_feat_concat, k=k_neighbors, labels=all_labels, labeled_mask=labeled_mask)
+    adj = build_knn_graph(all_feat_concat, k=k_neighbors, labels=all_labels, labeled_mask=train_mask)
 
     # --- 5. Create model ---
     num_classes = len(np.unique(all_labels))
@@ -946,7 +983,7 @@ def run_causal_experiment(
         
     result = trainer.train(
         img_tensor, txt_tensor, labels_dict, adj,
-        domain_tensor, labeled_mask, test_mask,
+        domain_tensor, train_mask, test_mask, val_mask=val_mask,
         task=task, run_name=run_name,
         use_causal_graph=use_causal_graph,
         k_neighbors=k_neighbors
