@@ -479,6 +479,12 @@ class CausalCrisisTrainer:
                 task=task,
                 grl_lambda=0.0,  # khong GRL cho val
             )
+            
+            val_loss, _ = self.criterion(
+                outputs_val, labels,
+                domain_labels=domain_labels,
+                mask=val_mask,
+            )
 
         val_f1s = {}
         train_f1s = {}
@@ -514,6 +520,7 @@ class CausalCrisisTrainer:
 
         return {
             "train_loss": total_loss.item(),
+            "val_loss": val_loss.item(),
             "val_f1": avg_val_f1,
             "train_f1": avg_train_f1,
             "hm_f1": hm_f1,
