@@ -200,9 +200,10 @@ def extract_clip_features_with_domain(dataset_path, task="task1",
 # 2. GRAPH CONSTRUCTION (ke thua tu geda_trainer.py)
 # ============================================================
 
-def build_knn_graph(features, k=16, use_faiss=True, as_sparse=True):
+def build_knn_graph(features, k=16, use_faiss=True, as_sparse=True, labels=None, labeled_mask=None):
     """
-    Build k-NN adjacency matrix.
+    Build k-NN adjacency matrix with Label-Guided fallback.
+    If labels and labeled_mask are provided, labeled nodes prioritize connecting to nodes with the same label.
     Returns normalized adjacency: D^{-1}A.
     Uses sparse tensor by default to prevent OOM on full dataset.
     """
@@ -225,6 +226,24 @@ def build_knn_graph(features, k=16, use_faiss=True, as_sparse=True):
         nn_model.fit(features)
         _, indices = nn_model.kneighbors(features)
         indices = indices[:, 1:]
+
+    # --- Label-Guided kNN logic ---
+    if labels is not None and labeled_mask is not None:
+        if isinstance(labeled_mask, torch.Tensor):
+            labeled_mask = labeled_mask.cpu().numpy()
+        if isinstance(labels, torch.Tensor):
+            labels = labels.cpu().numpy()
+            
+        labeled_idx = np.where(labeled_mask)[0]
+        for i in labeled_idx:
+            c = labels[i]
+            # Find other labeled nodes with the EXACT same class
+            same_class_idx = np.where((labels == c) & labeled_mask & (np.arange(n) != i))[0]
+            if len(same_class_idx) > 0:
+                np.random.shuffle(same_class_idx)
+                replace_cnt = min(len(same_class_idx), k)
+                # Overwrite the first `replace_cnt` edges with same-class neighbors
+                indices[i, :replace_cnt] = same_class_idx[:replace_cnt]
 
     if as_sparse:
         # Build Sparse COO tensor
@@ -545,10 +564,10 @@ class CausalCrisisTrainer:
                         c_v_np = out_tmp["c_v"].cpu().numpy()
                         c_t_np = out_tmp["c_t"].cpu().numpy()
                         causal_feat_concat = np.concatenate([c_v_np, c_t_np], axis=1)
-                        # Force graph in eval to keep consistent type
-                        adj = build_knn_graph(causal_feat_concat, k=k_neighbors).to(self.device)
+                        adj = build_knn_graph(causal_feat_concat, k=k_neighbors, labels=labels, labeled_mask=labeled_mask).to(self.device)
                         del out_tmp
-                        torch.cuda.empty_cache() if self.device == "cuda" else None
+                        if self.device == "cuda":
+                            torch.cuda.empty_cache()
                         print(f"  Graph rebuilt successfully. Restarting learning rate for Phase 2!")
                         
                         # Reset learning rate so model can actually learn from the new graph! 
@@ -793,7 +812,7 @@ def run_causal_experiment(
     
     print(f"  Building RAW kNN graph (k={k_neighbors}) initially...")
     all_feat_concat = np.concatenate([all_img_r, all_txt_r], axis=1)
-    adj = build_knn_graph(all_feat_concat, k=k_neighbors)
+    adj = build_knn_graph(all_feat_concat, k=k_neighbors, labels=all_labels, labeled_mask=labeled_mask)
 
     # --- 5. Create model ---
     num_classes = len(np.unique(all_labels))

@@ -31,6 +31,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from typing import Optional, Dict, Tuple
+from itertools import combinations
 
 
 # ============================================================
@@ -206,38 +207,68 @@ class CausalDisentangler(nn.Module):
 
 
 # ============================================================
-# 3. GRADIENT REVERSAL LAYER + DOMAIN CLASSIFIER (MOI)
+# 3. CONDITIONAL MMD + SPURIOUS DOMAIN CLASSIFIER (MOI)
 # ============================================================
 
-class GradientReversalFunction(torch.autograd.Function):
+def mmd_rbf(f1: torch.Tensor, f2: torch.Tensor, sigmas=(1, 5, 10)) -> torch.Tensor:
+    """Tinh Maximum Mean Discrepancy (MMD) giua 2 distributions bang RBF kernel."""
+    if len(f1) == 0 or len(f2) == 0:
+        return torch.tensor(0.0, device=f1.device)
+        
+    def kernel(x, y, sigma):
+        # ||x - y||^2 = ||x||^2 + ||y||^2 - 2 <x, y>
+        x_sq = (x ** 2).sum(dim=-1).unsqueeze(1)
+        y_sq = (y ** 2).sum(dim=-1).unsqueeze(0)
+        dist_sq = x_sq + y_sq - 2.0 * torch.matmul(x, y.transpose(0, 1))
+        return torch.exp(-dist_sq / (2.0 * sigma ** 2))
+
+    loss = 0.0
+    for s in sigmas:
+        k_xx = kernel(f1, f1, s).mean()
+        k_yy = kernel(f2, f2, s).mean()
+        k_xy = kernel(f1, f2, s).mean()
+        loss += k_xx + k_yy - 2 * k_xy
+    return loss
+
+def conditional_mmd_loss(c_features: torch.Tensor, domain_labels: torch.Tensor, task_labels: torch.Tensor) -> torch.Tensor:
     """
-    Forward: identity (khong thay doi gi).
-    Backward: nhan gradient voi -lambda (DAO CHIEU gradient).
-
-    Hieu ung: Khi domain classifier co hoc phan biet domain tu C,
-    GRL se dao gradient => ep causal encoder "xoa" thong tin domain khoi C.
-
-    Reference: Ganin et al., "Domain-Adversarial Training of NNs", JMLR 2016.
+    MMD giua ca domains, nhung CHI trong cung 1 class.
+    Giam distribution gap cua cung 1 task giua cac domains khac nhau.
     """
-
-    @staticmethod
-    def forward(ctx, x, lambda_):
-        ctx.lambda_ = lambda_
-        return x.view_as(x)
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        return -ctx.lambda_ * grad_output, None
+    loss = torch.tensor(0.0, device=c_features.device)
+    if len(c_features) == 0 or len(domain_labels) == 0 or len(task_labels) == 0:
+        return loss
+        
+    valid_pairs = 0
+    unique_classes = torch.unique(task_labels)
+    
+    for cls in unique_classes:
+        cls_mask = (task_labels == cls)
+        cls_features = c_features[cls_mask]
+        cls_domains = domain_labels[cls_mask]
+        
+        unique_domains = torch.unique(cls_domains)
+        if len(unique_domains) < 2:
+            continue
+            
+        # So sanh tat ca cac cap domains trong cung class nay
+        for d1, d2 in combinations(unique_domains.cpu().numpy(), 2):
+            f1 = cls_features[cls_domains == d1]
+            f2 = cls_features[cls_domains == d2]
+            if len(f1) > 1 and len(f2) > 1: # Can it nhat 2 mau de uoc luong tot kernel
+                loss += mmd_rbf(f1, f2)
+                valid_pairs += 1
+                
+    if valid_pairs > 0:
+        loss = loss / valid_pairs
+        
+    return loss
 
 
 class DomainClassifier(nn.Module):
     """
-    Phan loai domain (disaster type) tu features.
-
-    Dung 2 lan trong pipeline:
-    1. DomainClassifier(GRL(C)) => phai = random (C domain-invariant)
-    2. DomainClassifier(S)      => phai = dung  (S domain-specific)
-
+    Phan loai domain (disaster type) tu spurious features.
+    S la domain-specific -> Classification accuracy phai cao.
     CrisisMMD co 7 disaster events => num_domains = 7.
     """
 
@@ -254,28 +285,21 @@ class DomainClassifier(nn.Module):
             nn.Linear(hidden_dim // 2, num_domains),
         )
 
-    def forward(self, features: torch.Tensor,
-                grl_lambda: float = 0.0) -> torch.Tensor:
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            features: (B, feature_dim) - C hoac S
-            grl_lambda: 0.0 = khong dao (cho S), >0 = dao gradient (cho C)
+            features: (B, feature_dim) - S features
         Returns:
             domain_logits: (B, num_domains)
         """
-        if grl_lambda > 0:
-            features = GradientReversalFunction.apply(features, grl_lambda)
         return self.net(features)
 
 
 def compute_grl_lambda(epoch: int, max_epochs: int, warmup=10, max_lambda=0.5, gamma=5) -> float:
-    """
-    Tang dan lambda tu 0 -> max_lambda theo duong cong sigmoid sau giai doan warmup.
-    Ban dau: cho model on dinh truoc (0.0).
-    Sau do: tang ap luc adversarial dan dan (tranh domain_acc chet som).
-    """
+    """Giữ nguyên api name để không lỗi file trainer tạm thời (dù không dùng GRL nữa). 
+    Tuy nhiên trainer vẫn dùng hàm này cho loss weights nếu cần."""
     if epoch < warmup:
-        return 0.0  # Warm-up: khong GRL
+        return 0.0
     p = (epoch - warmup) / max(max_epochs - warmup, 1)
     return float(max_lambda * (2.0 / (1.0 + np.exp(-gamma * p)) - 1.0))
 
@@ -441,7 +465,6 @@ class CausalCrisisModel(nn.Module):
                 hidden_dim, causal_dim, spurious_dim, dropout
             )
             # Issue 34: Share weights giua cac modalities tiet kiem param, dong bo gradient
-            self.domain_cls_causal = DomainClassifier(causal_dim, num_domains)
             self.domain_cls_spurious = DomainClassifier(spurious_dim, num_domains)
             gnn_input_dim = causal_dim
         else:
@@ -598,11 +621,9 @@ class CausalCrisisModel(nn.Module):
             c_v, s_v, h_img_recon = self.disentangle_img(h_img)   # (B, 256) each
             c_t, s_t, h_txt_recon = self.disentangle_txt(h_txt)   # (B, 256) each
 
-            # Domain predictions (cho adversarial loss)
-            outputs["domain_cv"] = self.domain_cls_causal(c_v, grl_lambda)  # GRL dao gradient
-            outputs["domain_ct"] = self.domain_cls_causal(c_t, grl_lambda)
-            outputs["domain_sv"] = self.domain_cls_spurious(s_v, 0.0)        # Classifier rieng, khong GRL
-            outputs["domain_st"] = self.domain_cls_spurious(s_t, 0.0)
+            # Domain predictions (cho spurious classifier)
+            outputs["domain_sv"] = self.domain_cls_spurious(s_v)
+            outputs["domain_st"] = self.domain_cls_spurious(s_t)
 
             # Luu cho loss computation
             outputs["c_v"] = c_v
@@ -709,6 +730,82 @@ class FocalLoss(nn.Module):
             pt = torch.exp(-ce_loss)
             focal_loss = ((1 - pt) ** self.gamma) * ce_loss
             return focal_loss.mean()
+
+
+def mmd_rbf(x, y, gamma=1.0):
+    """
+    Computes the RBF MMD (Maximum Mean Discrepancy) between two feature sets.
+    Args:
+        x (torch.Tensor): Features from domain X (N, D)
+        y (torch.Tensor): Features from domain Y (M, D)
+        gamma (float): Kernel parameter for RBF.
+    Returns:
+        torch.Tensor: MMD value.
+    """
+    xx = torch.matmul(x, x.T)
+    yy = torch.matmul(y, y.T)
+    xy = torch.matmul(x, y.T)
+
+    rx = (xx.diag().unsqueeze(0).expand_as(xx))
+    ry = (yy.diag().unsqueeze(0).expand_as(yy))
+
+    dxx = rx.T + rx - 2. * xx
+    dyy = ry.T + ry - 2. * yy
+    dxy = rx.T + ry - 2. * xy
+
+    kxx = torch.exp(-gamma * dxx)
+    kyy = torch.exp(-gamma * dyy)
+    kxy = torch.exp(-gamma * dxy)
+
+    return kxx.mean() + kyy.mean() - 2. * kxy.mean()
+
+
+def conditional_mmd_loss(features: torch.Tensor, domains: torch.Tensor, labels: torch.Tensor, gamma=1.0) -> torch.Tensor:
+    """
+    Computes Conditional MMD loss.
+    The goal is to make causal features domain-invariant *within* each task label.
+    Args:
+        features (torch.Tensor): Causal features (B, D)
+        domains (torch.Tensor): Domain labels (B,)
+        labels (torch.Tensor): Task labels (B,)
+        gamma (float): Kernel parameter for RBF.
+    Returns:
+        torch.Tensor: Conditional MMD loss.
+    """
+    if features.numel() == 0 or domains.numel() == 0 or labels.numel() == 0:
+        return torch.tensor(0.0, device=features.device)
+
+    unique_labels = labels.unique()
+    unique_domains = domains.unique()
+
+    loss = 0.0
+    count = 0
+
+    for label in unique_labels:
+        label_mask = (labels == label)
+        if label_mask.sum() == 0:
+            continue
+
+        # Collect features for this label across all domains
+        label_features = features[label_mask]
+        label_domains = domains[label_mask]
+
+        # Compare features between all pairs of domains for this label
+        for i, dom1 in enumerate(unique_domains):
+            for j, dom2 in enumerate(unique_domains):
+                if i >= j: # Only compute unique pairs (including self-comparison for variance)
+                    continue
+
+                mask1 = (label_domains == dom1)
+                mask2 = (label_domains == dom2)
+
+                if mask1.sum() > 1 and mask2.sum() > 1: # Need at least 2 samples per domain to compute MMD
+                    x = label_features[mask1]
+                    y = label_features[mask2]
+                    loss += mmd_rbf(x, y, gamma)
+                    count += 1
+    
+    return loss / max(1, count) # Average MMD over all valid pairs
 
 
 class CausalCrisisLoss(nn.Module):
@@ -838,22 +935,27 @@ class CausalCrisisLoss(nn.Module):
                     total = total + task_lambdas[t] * l_cls
                     losses[f"cls_{t}"] = l_cls.item()
 
-        # ── L_adv: Adversarial domain loss ──
-        if "domain_cv" in outputs and domain_labels is not None:
+        # ── L_adv: Adversarial/Conditional MMD domain loss ──
+        if "c_v" in outputs and domain_labels is not None and "task1" in targets:
             dom = domain_labels
-            d_cv = outputs["domain_cv"]
-            d_ct = outputs["domain_ct"]
-            d_sv = outputs["domain_sv"]
-            d_st = outputs["domain_st"]
+            v_sv = outputs.get("domain_sv", None)
+            v_st = outputs.get("domain_st", None)
+            c_v = outputs["c_v"]
+            c_t = outputs["c_t"]
+            task1_lbls = targets["task1"]
 
-            if len(dom) > 0:
-                # Causal branches: GRL da dao gradient => entropy loss pushes randomness
-                l_adv_c = (F.cross_entropy(d_cv, dom) + F.cross_entropy(d_ct, dom))
-                # Spurious branches: phai classify domain dung (no GRL)
-                l_adv_s = (F.cross_entropy(d_sv, dom) + F.cross_entropy(d_st, dom))
-                l_adv = l_adv_c + l_adv_s
-                total = total + self.alpha_adv * l_adv
-                losses["adv"] = l_adv.item()
+            if len(dom) > 0 and v_sv is not None:
+                # 1. Spurious phai giu duoc domain thong tin => CrossEntropy pass
+                l_adv_s = F.cross_entropy(v_sv, dom) + F.cross_entropy(v_st, dom)
+                
+                # 2. Causal phai giong nhau giua cac domain trong CUNG 1 TASK => Conditional MMD
+                l_mmd_v = conditional_mmd_loss(c_v, dom, task1_lbls)
+                l_mmd_t = conditional_mmd_loss(c_t, dom, task1_lbls)
+                l_adv_c = l_mmd_v + l_mmd_t
+                
+                total = total + self.alpha_adv * (l_adv_s + l_adv_c)
+                losses["adv_s"] = l_adv_s.item()
+                losses["adv_c"] = l_adv_c.item()
                 losses["adv_causal"] = l_adv_c.item()
                 losses["adv_spurious"] = l_adv_s.item()
 
