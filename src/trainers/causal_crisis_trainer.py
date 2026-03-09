@@ -621,7 +621,8 @@ class CausalCrisisTrainer:
                         c_v_np = out_tmp["c_v"].cpu().numpy()
                         c_t_np = out_tmp["c_t"].cpu().numpy()
                         causal_feat_concat = np.concatenate([c_v_np, c_t_np], axis=1)
-                        adj = build_knn_graph(causal_feat_concat, k=k_neighbors, labels=labels, labeled_mask=labeled_mask).to(self.device)
+                        # pass labels[task] instead of dictionary labels to fix KeyError
+                        adj = build_knn_graph(causal_feat_concat, k=k_neighbors, labels=labels[task], labeled_mask=labeled_mask).to(self.device)
                         del out_tmp
                         if self.device == "cuda":
                             torch.cuda.empty_cache()
