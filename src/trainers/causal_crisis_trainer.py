@@ -733,9 +733,10 @@ def run_causal_experiment(
     - Dung CausalCrisisModel + CausalCrisisLoss
     - Log domain invariance metrics
     """
-    from ..models.causal_crisis_model import (
-        CausalCrisisModel, CausalCrisisLoss, compute_grl_lambda
-    )
+    import models.causal_crisis_model as cc_models
+    CausalCrisisModel = cc_models.CausalCrisisModel
+    CausalCrisisLoss = cc_models.CausalCrisisLoss
+    compute_grl_lambda = cc_models.compute_grl_lambda
 
     set_seed(seed)
     # Ha momentum cua memory bank the N (few-shot < 100 mau => giam Momentum -> centroid update gap cap)
