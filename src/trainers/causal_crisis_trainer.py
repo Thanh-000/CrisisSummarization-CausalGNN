@@ -658,7 +658,8 @@ class CausalCrisisTrainer:
                 best_val_loss = metrics["val_loss"]
 
             # Early stopping based on Validation F1
-            if metrics["val_f1"] > best_val_f1:
+            if metrics["val_f1"] > best_val_f1 + 1e-4:
+                # Update best_val_f1 without min_delta so that the absolute maximum is stored
                 best_val_f1 = metrics["val_f1"]
                 patience_counter = 0
                 best_state = {
