@@ -380,7 +380,7 @@ class CausalCrisisTrainer:
             {'params': no_decay_params, 'weight_decay': 0.0},
         ], lr=lr)
         self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            self.optimizer, mode='max', factor=0.1, patience=15, min_lr=1e-6
+            self.optimizer, mode='min', factor=0.1, patience=15, min_lr=1e-6
         )
         self._val_split = None  # Cache validation_split thay vi shuffle tung epoch
 
@@ -583,7 +583,8 @@ class CausalCrisisTrainer:
              val_mask = torch.zeros_like(train_mask)
         test_mask = test_mask.to(self.device)
 
-        best_val_f1 = 0
+        best_val_loss = float('inf')
+        best_val_f1 = 0.0 # Just for logging
         patience_counter = 0
         best_state = None
         history = []
@@ -630,7 +631,7 @@ class CausalCrisisTrainer:
                         for param_group in self.optimizer.param_groups:
                             param_group['lr'] = initial_lr if param_group['weight_decay'] > 0 else initial_lr
                         # Reset early stopping trackers
-                        best_val_f1 = 0.0
+                        best_val_loss = float('inf')
                         patience_counter = 0
             
             metrics = self.train_epoch(
@@ -640,12 +641,16 @@ class CausalCrisisTrainer:
             )
             history.append(metrics)
             
-            # ReduceLROnPlateau scheduler step (with val_f1)
-            self.scheduler.step(metrics["val_f1"])
+            # ReduceLROnPlateau scheduler step (with val_loss)
+            self.scheduler.step(metrics["val_loss"])
 
-            # Early stopping
+            # Keep track of best f1 for logging context
             if metrics["val_f1"] > best_val_f1:
                 best_val_f1 = metrics["val_f1"]
+
+            # Early stopping based on Validation Loss
+            if metrics["val_loss"] < best_val_loss:
+                best_val_loss = metrics["val_loss"]
                 patience_counter = 0
                 best_state = {
                     k: v.cpu().clone()
@@ -863,41 +868,26 @@ def run_causal_experiment(
     all_img_r = all_img_r / (np.linalg.norm(all_img_r, axis=1, keepdims=True) + 1e-8)
     all_txt_r = all_txt_r / (np.linalg.norm(all_txt_r, axis=1, keepdims=True) + 1e-8)
 
-    # --- 3.5 OOD Split Logic (Moved from Trainer) ---
+    # --- 3.5 Random 15% Validation Split (Fixing Bottleneck 1) ---
     train_mask = labeled_mask.clone()
     val_mask = torch.zeros(n_total, dtype=torch.bool)
     
     labeled_indices = torch.where(labeled_mask)[0]
-    train_domains = torch.tensor(all_domain_labels)[labeled_indices]
-    unique_domains = train_domains.unique()
+    n_labeled_tot = len(labeled_indices)
+    val_size = int(n_labeled_tot * 0.15)
     
-    val_domain_picked = False
-    if len(unique_domains) > 1:
-        # Count samples per domain
-        counts = [(d.item(), (train_domains == d).sum().item()) for d in unique_domains]
-        counts.sort(key=lambda x: x[1])
-        valid_counts = [x for x in counts if x[1] >= 5]
-        
-        if len(valid_counts) > 0:
-            val_domain = valid_counts[0][0]
-            val_mask_rel = (train_domains == val_domain)
-            
-            val_idx_abs = labeled_indices[val_mask_rel]
-            val_mask[val_idx_abs] = True
-            train_mask[val_idx_abs] = False
-            val_domain_picked = True
-            print(f"  [OOD Val] Selected domain {val_domain} as validation set (size={len(val_idx_abs)})")
-            
-    if not val_domain_picked:
-        # Fallback random split
-        train_frac = 0.8
-        n_labeled_tot = len(labeled_indices)
-        perm = torch.randperm(n_labeled_tot, generator=torch.Generator().manual_seed(seed))
-        n_tr = int(n_labeled_tot * train_frac)
-        val_idx_rel = perm[n_tr:]
-        val_idx_abs = labeled_indices[val_idx_rel]
-        val_mask[val_idx_abs] = True
-        train_mask[val_idx_abs] = False
+    # Shuffle and pick indices for validation
+    g_seed = torch.Generator()
+    g_seed.manual_seed(seed)
+    perm = torch.randperm(n_labeled_tot, generator=g_seed)
+    
+    val_idx_rel = perm[:val_size]
+    val_idx_abs = labeled_indices[val_idx_rel]
+    
+    val_mask[val_idx_abs] = True
+    train_mask[val_idx_abs] = False
+    
+    print(f"  [Validation] Random 15% split applied: Train {train_mask.sum().item()}, Val {val_mask.sum().item()}")
 
     # --- 4. Build graph ---
     k_base = {"task1": 16, "task2": 8, "task3": 12}.get(task, 16)

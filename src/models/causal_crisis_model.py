@@ -840,14 +840,14 @@ class CausalCrisisLoss(nn.Module):
         # Reconstruction prevents info loss. Ramp from 1.0 to 2.0 early
         self.alpha_recon = 1.0 + min(1.0, epoch / 50.0)
         
-        # Adversarial and Orthogonal warmup along the entire run
+        # Adversarial and Orthogonal warmup along the entire run (reduced intensity)
         progress = min(1.0, epoch / max_epochs)
-        self.alpha_adv = 0.05 + 0.10 * progress
-        self.alpha_orth = 0.01 + 0.09 * progress
+        self.alpha_adv = 0.005 + 0.005 * progress  # Max 0.01
+        self.alpha_orth = 0.005 + 0.005 * progress # Max 0.01
         
         # Causal Intervention warmup: start slowly after epoch 50
         int_progress = min(1.0, max(0.0, (epoch - 50) / 70.0))
-        self.alpha_int = 0.2 * int_progress
+        self.alpha_int = 0.01 * int_progress # Max 0.01
 
     def orthogonal_loss(self, c: torch.Tensor, s: torch.Tensor) -> torch.Tensor:
         """HSIC: kiem tra statistical independence, khong chi linear (Issue 36).
