@@ -1130,7 +1130,7 @@ def run_ablation_suite(
 
 def run_lodo_all_experiments(
      dataset_path="/content/datasets/CrisisMMD_v2.0",
-     seeds=(42,), task="task1", size="all", device="cuda",
+     seed=42, task="task1", size="all", device="cuda",
      results_csv="/content/causal_results/lodo_results.csv",
      variants_to_run=None,
 ):
@@ -1154,9 +1154,8 @@ def run_lodo_all_experiments(
         
     for v in variants:
         for evt in events:
-            for s in seeds:
-                 run_causal_experiment(
-                     dataset_path=dataset_path, task=task, seed=s, n_labeled=size,
+             run_causal_experiment(
+                 dataset_path=dataset_path, task=task, seed=seed, n_labeled=size,
                      device=device, results_csv=results_csv, variant_name=v["name"],
                      use_causal=v["causal"], use_intervention=v["int"], 
                      use_causal_graph=v["causal"], # Turn on graph decoupling !!

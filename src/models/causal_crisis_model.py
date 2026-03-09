@@ -86,32 +86,42 @@ class SelfAttention(nn.Module):
 class GuidedCrossAttention(nn.Module):
     """
     Real Cross-Attention using MultiheadAttention between Image and Text pooled vectors.
+    Using chunking to convert 512-dim vectors into a sequence of 4 tokens (each 128-dim) 
+    so that Attention actually has a sequence length to work with.
     """
-    def __init__(self, dim: int, num_heads: int = 4, dropout: float = 0.1):
+    def __init__(self, dim: int, num_heads: int = 4, dropout: float = 0.1, num_chunks: int = 4):
         super().__init__()
-        # batch_first=True makes MHA expect (B, Seq, Dim)
-        self.mha_I = nn.MultiheadAttention(embed_dim=dim, num_heads=num_heads, dropout=dropout, batch_first=True)
-        self.mha_T = nn.MultiheadAttention(embed_dim=dim, num_heads=num_heads, dropout=dropout, batch_first=True)
-        self.norm_I = nn.LayerNorm(dim)
-        self.norm_T = nn.LayerNorm(dim)
+        assert dim % num_chunks == 0, "dim must be divisible by num_chunks"
+        self.dim = dim
+        self.num_chunks = num_chunks
+        self.chunk_dim = dim // num_chunks
+        
+        # We now apply MHA over chunk_dim
+        self.mha_I = nn.MultiheadAttention(embed_dim=self.chunk_dim, num_heads=num_heads, dropout=dropout, batch_first=True)
+        self.mha_T = nn.MultiheadAttention(embed_dim=self.chunk_dim, num_heads=num_heads, dropout=dropout, batch_first=True)
+        self.norm_I = nn.LayerNorm(self.chunk_dim)
+        self.norm_T = nn.LayerNorm(self.chunk_dim)
 
     def forward(self, f_I: torch.Tensor, f_T: torch.Tensor) -> torch.Tensor:
-        # Reshape to (B, Seq=1, D)
-        q_I = f_I.unsqueeze(1)
-        kv_T = f_T.unsqueeze(1)
+        B = f_I.size(0)
         
-        q_T = f_T.unsqueeze(1)
-        kv_I = f_I.unsqueeze(1)
+        # Split Flat Vector (B, 512) into (B, 4, 128)
+        seq_I = f_I.view(B, self.num_chunks, self.chunk_dim)
+        seq_T = f_T.view(B, self.num_chunks, self.chunk_dim)
         
         # Image attends to Text
-        out_I, _ = self.mha_I(query=q_I, key=kv_T, value=kv_T)
-        out_I = self.norm_I(out_I.squeeze(1) + f_I) # Residual + Norm
+        out_I, _ = self.mha_I(query=seq_I, key=seq_T, value=seq_T)
+        out_I = self.norm_I(out_I + seq_I) # Residual + Norm on sequence
         
         # Text attends to Image
-        out_T, _ = self.mha_T(query=q_T, key=kv_I, value=kv_I)
-        out_T = self.norm_T(out_T.squeeze(1) + f_T)
+        out_T, _ = self.mha_T(query=seq_T, key=seq_I, value=seq_I)
+        out_T = self.norm_T(out_T + seq_T)
         
-        return torch.cat([out_I, out_T], dim=-1)
+        # Flatten back to (B, 512) and concat to (B, 1024)
+        out_I_flat = out_I.reshape(B, self.dim)
+        out_T_flat = out_T.reshape(B, self.dim)
+        
+        return torch.cat([out_I_flat, out_T_flat], dim=-1)
 
 
 class AdaptiveDiffAttention(nn.Module):
@@ -119,19 +129,26 @@ class AdaptiveDiffAttention(nn.Module):
     Token-wise Differential Attention over the [Image, Text] dual-token sequence.
     Applies the mathematical definition of Differential Attention over the 2 modalities.
     """
-    def __init__(self, dim: int, num_heads: int = 4, dropout: float = 0.1):
+    def __init__(self, dim: int, num_heads: int = 4, dropout: float = 0.1, chunks_per_modality: int = 8):
         super().__init__()
         assert dim % 2 == 0, "dim here is 2 * module_dim"
         self.single_dim = dim // 2
-        self.num_heads = int(num_heads)
-        self.head_dim = int(self.single_dim // self.num_heads)
+        assert self.single_dim % chunks_per_modality == 0, "single_dim must be divisible by chunks_per_modality"
         
-        self.W_Q1 = nn.Linear(self.single_dim, self.single_dim)
-        self.W_K1 = nn.Linear(self.single_dim, self.single_dim)
-        self.W_Q2 = nn.Linear(self.single_dim, self.single_dim)
-        self.W_K2 = nn.Linear(self.single_dim, self.single_dim)
-        self.W_V = nn.Linear(self.single_dim, self.single_dim)
-        self.W_O = nn.Linear(self.single_dim, self.single_dim)
+        self.chunks_per_modality = chunks_per_modality
+        self.chunk_dim = self.single_dim // chunks_per_modality
+        self.seq_len = chunks_per_modality * 2 # 8 chunks for img + 8 chunks for txt = 16
+        
+        self.num_heads = int(num_heads)
+        self.head_dim = int(self.chunk_dim // self.num_heads)
+        assert self.chunk_dim % self.num_heads == 0, "chunk_dim must be divisible by num_heads"
+        
+        self.W_Q1 = nn.Linear(self.chunk_dim, self.chunk_dim)
+        self.W_K1 = nn.Linear(self.chunk_dim, self.chunk_dim)
+        self.W_Q2 = nn.Linear(self.chunk_dim, self.chunk_dim)
+        self.W_K2 = nn.Linear(self.chunk_dim, self.chunk_dim)
+        self.W_V = nn.Linear(self.chunk_dim, self.chunk_dim)
+        self.W_O = nn.Linear(self.chunk_dim, self.chunk_dim)
         
         self.lambda_net = nn.Sequential(
             nn.Linear(self.single_dim * 2, self.single_dim // 4),
@@ -143,21 +160,22 @@ class AdaptiveDiffAttention(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x is concatenated: (B, 2D) -> Split into (B, 2, D)
+        # x is concatenated: (B, 2D) -> Split into (B, Seq=16, d=32)
         B = x.size(0)
-        tokens = x.view(B, 2, self.single_dim) # (B, Seq=2, D)
         
-        # Compute lambda from flat feature
+        # Compute scalar lambda from the global flat feature
         lam = self.lambda_net(x).view(B, 1, 1, 1) # (B, 1, 1, 1) to broadcast over heads and seq
         
+        tokens = x.view(B, self.seq_len, self.chunk_dim)
+        
         def compute_qkv(W_Q, W_K):
-            Q = W_Q(tokens).view(B, 2, self.num_heads, self.head_dim).transpose(1, 2) # (B, H, 2, d)
-            K = W_K(tokens).view(B, 2, self.num_heads, self.head_dim).transpose(1, 2) # (B, H, 2, d)
+            Q = W_Q(tokens).contiguous().view(B, self.seq_len, self.num_heads, self.head_dim).transpose(1, 2) # (B, H, Seq, head_dim)
+            K = W_K(tokens).contiguous().view(B, self.seq_len, self.num_heads, self.head_dim).transpose(1, 2) # (B, H, Seq, head_dim)
             return Q, K
             
         Q1, K1 = compute_qkv(self.W_Q1, self.W_K1)
         Q2, K2 = compute_qkv(self.W_Q2, self.W_K2)
-        V = self.W_V(tokens).view(B, 2, self.num_heads, self.head_dim).transpose(1, 2)
+        V = self.W_V(tokens).contiguous().view(B, self.seq_len, self.num_heads, self.head_dim).transpose(1, 2)
         
         attn1 = F.softmax(torch.matmul(Q1, K1.transpose(-2, -1)) * self.scale, dim=-1) # (B, H, 2, 2)
         attn2 = F.softmax(torch.matmul(Q2, K2.transpose(-2, -1)) * self.scale, dim=-1)
@@ -166,13 +184,13 @@ class AdaptiveDiffAttention(nn.Module):
         diff_attn = F.relu(attn1 - lam * attn2)
         diff_attn = self.dropout(diff_attn)
         
-        out = torch.matmul(diff_attn, V) # (B, H, 2, d)
-        out = out.transpose(1, 2).contiguous().view(B, 2, self.single_dim) # (B, 2, D)
-        out = self.dropout(self.W_O(out)) # (B, 2, D)
+        out = torch.matmul(diff_attn, V) # (B, H, Seq, head_dim)
+        out = out.transpose(1, 2).contiguous().view(B, self.seq_len, self.chunk_dim) # (B, Seq, chunk_dim)
+        out = self.dropout(self.W_O(out)) # (B, Seq, chunk_dim)
         
-        # Resudual connection & flatten back to (B, 2D)
-        out = out + tokens
-        return out.view(B, self.single_dim * 2)
+        # Residual connection & flatten back to (B, 2D)
+        out = out.view(B, self.single_dim * 2) + x
+        return out
 
 
 # ============================================================
@@ -363,20 +381,20 @@ class CausalIntervention(nn.Module):
         if total == 0:
             return c_vt
             
-        # Hardest negative domain intervention (Contrastive):
-        # Find the domain centroid that is furthest from each sample
-        dists = torch.cdist(c_vt, self.centroids) # (B, num_domains)
+        # Calculate P(d) = Softmax(counts) for backdoor adjustment weighting
+        valid_mask = self.initialized
+        raw_counts = self.counts.clone()
+        raw_counts[~valid_mask] = -float('inf')  # zero out invalid domain probabilities
         
-        # Ignore uninitialized domains
-        invalid_mask = ~self.initialized
-        dists[:, invalid_mask] = -1.0
+        p_d = F.softmax(raw_counts, dim=0) # (num_domains,)
         
-        # Get hardest negative centroid for each sample
-        furthest_idx = dists.argmax(dim=1)
-        hardest_negatives = self.centroids[furthest_idx]
+        # Calculate Weighted Average Centroid
+        # centroids: (num_domains, feature_dim) -> weighted sum: (feature_dim,)
+        weighted_centroid = (self.centroids * p_d.unsqueeze(-1)).sum(dim=0)
         
-        # Contrastive Intervention: push/pull towards hardest negative to make invariant
-        c_vt_do = c_vt + self.mix_ratio * (hardest_negatives - c_vt)
+        # Apply Backdoor Adjustment: Push towards marginal centroid
+        # c_vt_do = C_vt + mix_ratio * P(D=d)(centroid_d - C_vt)
+        c_vt_do = c_vt + self.mix_ratio * (weighted_centroid.unsqueeze(0) - c_vt)
         return c_vt_do
 
 
