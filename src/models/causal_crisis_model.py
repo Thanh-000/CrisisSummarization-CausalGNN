@@ -210,59 +210,7 @@ class CausalDisentangler(nn.Module):
 # 3. CONDITIONAL MMD + SPURIOUS DOMAIN CLASSIFIER (MOI)
 # ============================================================
 
-def mmd_rbf(f1: torch.Tensor, f2: torch.Tensor, sigmas=(1, 5, 10)) -> torch.Tensor:
-    """Tinh Maximum Mean Discrepancy (MMD) giua 2 distributions bang RBF kernel."""
-    if len(f1) == 0 or len(f2) == 0:
-        return torch.tensor(0.0, device=f1.device)
-        
-    def kernel(x, y, sigma):
-        # ||x - y||^2 = ||x||^2 + ||y||^2 - 2 <x, y>
-        x_sq = (x ** 2).sum(dim=-1).unsqueeze(1)
-        y_sq = (y ** 2).sum(dim=-1).unsqueeze(0)
-        dist_sq = x_sq + y_sq - 2.0 * torch.matmul(x, y.transpose(0, 1))
-        return torch.exp(-dist_sq / (2.0 * sigma ** 2))
-
-    loss = 0.0
-    for s in sigmas:
-        k_xx = kernel(f1, f1, s).mean()
-        k_yy = kernel(f2, f2, s).mean()
-        k_xy = kernel(f1, f2, s).mean()
-        loss += k_xx + k_yy - 2 * k_xy
-    return loss
-
-def conditional_mmd_loss(c_features: torch.Tensor, domain_labels: torch.Tensor, task_labels: torch.Tensor) -> torch.Tensor:
-    """
-    MMD giua ca domains, nhung CHI trong cung 1 class.
-    Giam distribution gap cua cung 1 task giua cac domains khac nhau.
-    """
-    loss = torch.tensor(0.0, device=c_features.device)
-    if len(c_features) == 0 or len(domain_labels) == 0 or len(task_labels) == 0:
-        return loss
-        
-    valid_pairs = 0
-    unique_classes = torch.unique(task_labels)
-    
-    for cls in unique_classes:
-        cls_mask = (task_labels == cls)
-        cls_features = c_features[cls_mask]
-        cls_domains = domain_labels[cls_mask]
-        
-        unique_domains = torch.unique(cls_domains)
-        if len(unique_domains) < 2:
-            continue
-            
-        # So sanh tat ca cac cap domains trong cung class nay
-        for d1, d2 in combinations(unique_domains.cpu().numpy(), 2):
-            f1 = cls_features[cls_domains == d1]
-            f2 = cls_features[cls_domains == d2]
-            if len(f1) > 1 and len(f2) > 1: # Can it nhat 2 mau de uoc luong tot kernel
-                loss += mmd_rbf(f1, f2)
-                valid_pairs += 1
-                
-    if valid_pairs > 0:
-        loss = loss / valid_pairs
-        
-    return loss
+# Deleted duplicate mmd definition
 
 
 class DomainClassifier(nn.Module):
@@ -742,16 +690,12 @@ def mmd_rbf(x, y, gamma=1.0):
     Returns:
         torch.Tensor: MMD value.
     """
-    xx = torch.matmul(x, x.T)
-    yy = torch.matmul(y, y.T)
-    xy = torch.matmul(x, y.T)
-
-    rx = (xx.diag().unsqueeze(0).expand_as(xx))
-    ry = (yy.diag().unsqueeze(0).expand_as(yy))
-
-    dxx = rx.T + rx - 2. * xx
-    dyy = ry.T + ry - 2. * yy
-    dxy = rx.T + ry - 2. * xy
+    x_sq = (x ** 2).sum(dim=-1).unsqueeze(1) # (N, 1)
+    y_sq = (y ** 2).sum(dim=-1).unsqueeze(0) # (1, M)
+    
+    dxx = x_sq + x_sq.transpose(0, 1) - 2. * torch.matmul(x, x.transpose(0, 1))
+    dyy = y_sq.transpose(0, 1) + y_sq - 2. * torch.matmul(y, y.transpose(0, 1))
+    dxy = x_sq + y_sq - 2. * torch.matmul(x, y.transpose(0, 1))
 
     kxx = torch.exp(-gamma * dxx)
     kyy = torch.exp(-gamma * dyy)
@@ -943,6 +887,17 @@ class CausalCrisisLoss(nn.Module):
             c_v = outputs["c_v"]
             c_t = outputs["c_t"]
             task1_lbls = targets["task1"]
+
+            # CRITICAL: Prevent Data Leakage and Mismatched Shapes
+            # Only calculate MMD and Adversarial losses on Labeled samples!
+            if mask is not None:
+                dom = dom[mask]
+                task1_lbls = task1_lbls[mask]
+                c_v = c_v[mask]
+                c_t = c_t[mask]
+                if v_sv is not None:
+                    v_sv = v_sv[mask]
+                    v_st = v_st[mask]
 
             if len(dom) > 0 and v_sv is not None:
                 # 1. Spurious phai giu duoc domain thong tin => CrossEntropy pass
