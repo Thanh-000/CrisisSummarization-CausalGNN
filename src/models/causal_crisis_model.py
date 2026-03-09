@@ -837,17 +837,17 @@ class CausalCrisisLoss(nn.Module):
 
     def update_alpha(self, epoch: int, max_epochs: int):
         """Update loss weights linearly (warmup) to prevent loss spikes (Issue 4)."""
-        # Reconstruction prevents info loss. Ramp from 1.0 to 2.0 early
-        self.alpha_recon = 1.0 + min(1.0, epoch / 50.0)
+        # Reconstruction prevents info loss. Ramp from 1.0 to 1.5 early
+        self.alpha_recon = 1.0 + 0.5 * min(1.0, epoch / 50.0)
         
-        # Adversarial and Orthogonal warmup along the entire run (reduced intensity)
+        # Adversarial and Orthogonal warmup along the entire run (sweet spot intensity)
         progress = min(1.0, epoch / max_epochs)
-        self.alpha_adv = 0.005 + 0.005 * progress  # Max 0.01
-        self.alpha_orth = 0.005 + 0.005 * progress # Max 0.01
+        self.alpha_adv = 0.02 + 0.03 * progress   # Max 0.05
+        self.alpha_orth = 0.01 + 0.01 * progress  # Max 0.02
         
         # Causal Intervention warmup: start slowly after epoch 50
-        int_progress = min(1.0, max(0.0, (epoch - 50) / 70.0))
-        self.alpha_int = 0.01 * int_progress # Max 0.01
+        int_progress = min(1.0, max(0.0, (epoch - 50) / max(1.0, max_epochs - 50.0)))
+        self.alpha_int = 0.05 * int_progress # Max 0.05
 
     def orthogonal_loss(self, c: torch.Tensor, s: torch.Tensor) -> torch.Tensor:
         """HSIC: kiem tra statistical independence, khong chi linear (Issue 36).

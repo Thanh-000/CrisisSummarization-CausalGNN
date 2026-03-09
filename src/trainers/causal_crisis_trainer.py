@@ -353,8 +353,8 @@ class CausalCrisisTrainer:
         device="cuda",
         lr=1e-4,
         weight_decay=1e-3,
-        max_epochs=500,
-        patience=150,
+        max_epochs=300,
+        patience=30,
         checkpoint_dir="/content/causal_results/checkpoints",
     ):
         self.model = model.to(device)
@@ -380,7 +380,7 @@ class CausalCrisisTrainer:
             {'params': no_decay_params, 'weight_decay': 0.0},
         ], lr=lr)
         self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            self.optimizer, mode='min', factor=0.1, patience=15, min_lr=1e-6
+            self.optimizer, mode='max', factor=0.1, patience=15, min_lr=1e-6
         )
         self._val_split = None  # Cache validation_split thay vi shuffle tung epoch
 
@@ -590,8 +590,8 @@ class CausalCrisisTrainer:
              val_mask = torch.zeros_like(train_mask)
         test_mask = test_mask.to(self.device)
 
-        best_val_loss = float('inf')
-        best_val_f1 = 0.0 # Just for logging
+        best_val_loss = float('inf') # Just for logging
+        best_val_f1 = 0.0
         patience_counter = 0
         best_state = None
         history = []
@@ -638,7 +638,7 @@ class CausalCrisisTrainer:
                         for param_group in self.optimizer.param_groups:
                             param_group['lr'] = initial_lr if param_group['weight_decay'] > 0 else initial_lr
                         # Reset early stopping trackers
-                        best_val_loss = float('inf')
+                        best_val_f1 = 0.0
                         patience_counter = 0
             
             metrics = self.train_epoch(
@@ -648,16 +648,16 @@ class CausalCrisisTrainer:
             )
             history.append(metrics)
             
-            # ReduceLROnPlateau scheduler step (with val_loss)
-            self.scheduler.step(metrics["val_loss"])
+            # ReduceLROnPlateau scheduler step (with val_f1)
+            self.scheduler.step(metrics["val_f1"])
 
-            # Keep track of best f1 for logging context
-            if metrics["val_f1"] > best_val_f1:
-                best_val_f1 = metrics["val_f1"]
-
-            # Early stopping based on Validation Loss
+            # Keep track of best loss for logging context
             if metrics["val_loss"] < best_val_loss:
                 best_val_loss = metrics["val_loss"]
+
+            # Early stopping based on Validation F1
+            if metrics["val_f1"] > best_val_f1:
+                best_val_f1 = metrics["val_f1"]
                 patience_counter = 0
                 best_state = {
                     k: v.cpu().clone()
