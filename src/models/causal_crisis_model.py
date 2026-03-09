@@ -38,104 +38,141 @@ from itertools import combinations
 # 1. ATTENTION MODULES (ke thua nguyen ban tu GEDA)
 # ============================================================
 
-class SelfAttention(nn.Module):
-    """Feature-wise Self-Attention via Squeeze-Excitation.
-    
-    Tao D attention scores (moi chieu 1 score) thay vi 1 scalar cho toan bo vector.
-    Bottleneck: D -> D//4 -> D de giam params va tang non-linearity.
+class GraphSAGELayer(nn.Module):
     """
+    True GraphSAGE aggregator logic:
+    h_N = Aggregate(adj, x)
+    h_out = ReLU(W * Concat(x, h_N))
+    """
+    def __init__(self, in_dim: int, out_dim: int):
+        super().__init__()
+        # GraphSAGE concatenates the node's own feature with the aggregated neighborhood feature
+        self.proj = nn.Linear(in_dim * 2, out_dim)
+        
+    def forward(self, x: torch.Tensor, adj: torch.Tensor) -> torch.Tensor:
+        if adj.is_sparse:
+            h_N = torch.sparse.mm(adj, x)
+        else:
+            h_N = torch.matmul(adj, x)
+        
+        # Concat original features with aggregated neighbor features
+        h_cat = torch.cat([x, h_N], dim=-1)
+        return F.relu(self.proj(h_cat))
 
+
+class SelfAttention(nn.Module):
+    """
+    Replaced SE-Net gating with a standard 2-layer MLP to act as a localized feature refiner,
+    avoiding the misleading 'Self-Attention' terminology for single pooled vectors while
+    conceptually retaining the step of refining individual modality features.
+    """
     def __init__(self, dim: int, dropout: float = 0.1):
         super().__init__()
-        bottleneck = max(dim // 4, 32)  # Tranh qua nho
-        self.gate = nn.Sequential(
+        bottleneck = max(dim // 4, 32)
+        self.net = nn.Sequential(
             nn.Linear(dim, bottleneck),
-            nn.ReLU(),
-            nn.Linear(bottleneck, dim),
-            nn.Sigmoid(),
+            nn.LayerNorm(bottleneck),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(bottleneck, dim)
         )
-        self.proj = nn.Linear(dim, dim)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: (B, D)
-        attn = self.gate(x)              # (B, D) — per-dimension attention score
-        out = attn * self.proj(x)        # (B, D) — feature-wise gating
-        return self.dropout(out)
+        # Residual connection
+        return self.dropout(self.net(x)) + x
 
 
 class GuidedCrossAttention(nn.Module):
     """
-    Guided Cross-Attention: trao doi thong tin giua 2 modalities.
-
-    Trong CausalCrisis SCM:
-      Output C_vt = GCA(C_v', C_t') chinh la Cross-Modal Causal Factor.
-      C_vt = concat(alpha_t * z_I, alpha_I * z_T)
-      => Thong tin nhan qua chi xuat hien khi ket hop ca 2 modalities.
+    Real Cross-Attention using MultiheadAttention between Image and Text pooled vectors.
     """
-
-    def __init__(self, dim: int, dropout: float = 0.1):
+    def __init__(self, dim: int, num_heads: int = 4, dropout: float = 0.1):
         super().__init__()
-        self.proj_I = nn.Linear(dim, dim)
-        self.proj_T = nn.Linear(dim, dim)
-        self.gate_I = nn.Linear(dim, dim)
-        self.gate_T = nn.Linear(dim, dim)
-        self.dropout = nn.Dropout(dropout)
+        # batch_first=True makes MHA expect (B, Seq, Dim)
+        self.mha_I = nn.MultiheadAttention(embed_dim=dim, num_heads=num_heads, dropout=dropout, batch_first=True)
+        self.mha_T = nn.MultiheadAttention(embed_dim=dim, num_heads=num_heads, dropout=dropout, batch_first=True)
+        self.norm_I = nn.LayerNorm(dim)
+        self.norm_T = nn.LayerNorm(dim)
 
     def forward(self, f_I: torch.Tensor, f_T: torch.Tensor) -> torch.Tensor:
-        z_I = self.proj_I(f_I)
-        z_T = self.proj_T(f_T)
-        alpha_I = torch.sigmoid(self.gate_I(f_I))
-        alpha_T = torch.sigmoid(self.gate_T(f_T))
-        out = torch.cat([alpha_T * z_I, alpha_I * z_T], dim=-1)
-        return self.dropout(out)
+        # Reshape to (B, Seq=1, D)
+        q_I = f_I.unsqueeze(1)
+        kv_T = f_T.unsqueeze(1)
+        
+        q_T = f_T.unsqueeze(1)
+        kv_I = f_I.unsqueeze(1)
+        
+        # Image attends to Text
+        out_I, _ = self.mha_I(query=q_I, key=kv_T, value=kv_T)
+        out_I = self.norm_I(out_I.squeeze(1) + f_I) # Residual + Norm
+        
+        # Text attends to Image
+        out_T, _ = self.mha_T(query=q_T, key=kv_I, value=kv_I)
+        out_T = self.norm_T(out_T.squeeze(1) + f_T)
+        
+        return torch.cat([out_I, out_T], dim=-1)
 
 
 class AdaptiveDiffAttention(nn.Module):
     """
-    Adaptive Differential Attention.
-
-    Insight ly thuyet moi cua CausalCrisis:
-      attn1 capture causal signal (feature-level gating)
-      attn2 capture common-mode noise (confounding)
-      diff = attn1 - lambda * attn2  <=>  implicit causal intervention
-      => Phep tru nay tuong duong Backdoor Adjustment tren feature space.
-      Luu y: Day la "feature-level differential gating" do khong co sequence dim.
+    Token-wise Differential Attention over the [Image, Text] dual-token sequence.
+    Applies the mathematical definition of Differential Attention over the 2 modalities.
     """
-
-    def __init__(self, dim: int, dropout: float = 0.1):
+    def __init__(self, dim: int, num_heads: int = 4, dropout: float = 0.1):
         super().__init__()
-        self.W_Q1 = nn.Linear(dim, dim)
-        self.W_K1 = nn.Linear(dim, dim)
-        self.W_Q2 = nn.Linear(dim, dim)
-        self.W_K2 = nn.Linear(dim, dim)
-        self.W_V = nn.Linear(dim, dim)
-
-        # Adaptive lambda: input-dependent
+        assert dim % 2 == 0, "dim here is 2 * module_dim"
+        self.single_dim = dim // 2
+        self.num_heads = num_heads
+        self.head_dim = self.single_dim // num_heads
+        
+        self.W_Q1 = nn.Linear(self.single_dim, self.single_dim)
+        self.W_K1 = nn.Linear(self.single_dim, self.single_dim)
+        self.W_Q2 = nn.Linear(self.single_dim, self.single_dim)
+        self.W_K2 = nn.Linear(self.single_dim, self.single_dim)
+        self.W_V = nn.Linear(self.single_dim, self.single_dim)
+        self.W_O = nn.Linear(self.single_dim, self.single_dim)
+        
         self.lambda_net = nn.Sequential(
-            nn.Linear(dim, dim // 4),
+            nn.Linear(self.single_dim * 2, self.single_dim // 4),
             nn.ReLU(),
-            nn.Linear(dim // 4, 1),
+            nn.Linear(self.single_dim // 4, 1),
             nn.Sigmoid(),
         )
-
-        self.scale = dim ** -0.5
+        self.scale = self.head_dim ** -0.5
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        Q1, K1 = self.W_Q1(x), self.W_K1(x)
-        Q2, K2 = self.W_Q2(x), self.W_K2(x)
-        V = self.W_V(x)
-
-        attn1 = F.softmax(Q1 * K1 * self.scale, dim=-1)
-        attn2 = F.softmax(Q2 * K2 * self.scale, dim=-1)
-
-        lam = self.lambda_net(x)  # (B, 1)
-        diff_attn = attn1 - lam * attn2
-        diff_attn = F.relu(diff_attn)  # Issue 33: clamp negative attention
-        out = diff_attn * V
-
-        return self.dropout(out)
+        # x is concatenated: (B, 2D) -> Split into (B, 2, D)
+        B = x.size(0)
+        tokens = x.view(B, 2, self.single_dim) # (B, Seq=2, D)
+        
+        # Compute lambda from flat feature
+        lam = self.lambda_net(x).view(B, 1, 1, 1) # (B, 1, 1, 1) to broadcast over heads and seq
+        
+        def compute_qkv(W_Q, W_K):
+            Q = W_Q(tokens).view(B, 2, self.num_heads, self.head_dim).transpose(1, 2) # (B, H, 2, d)
+            K = W_K(tokens).view(B, 2, self.num_heads, self.head_dim).transpose(1, 2) # (B, H, 2, d)
+            return Q, K
+            
+        Q1, K1 = compute_qkv(self.W_Q1, self.W_K1)
+        Q2, K2 = compute_qkv(self.W_Q2, self.W_K2)
+        V = self.W_V(tokens).view(B, 2, self.num_heads, self.head_dim).transpose(1, 2)
+        
+        attn1 = F.softmax(torch.matmul(Q1, K1.transpose(-2, -1)) * self.scale, dim=-1) # (B, H, 2, 2)
+        attn2 = F.softmax(torch.matmul(Q2, K2.transpose(-2, -1)) * self.scale, dim=-1)
+        
+        # Differential Attention Core
+        diff_attn = F.relu(attn1 - lam * attn2)
+        diff_attn = self.dropout(diff_attn)
+        
+        out = torch.matmul(diff_attn, V) # (B, H, 2, d)
+        out = out.transpose(1, 2).contiguous().view(B, 2, self.single_dim) # (B, 2, D)
+        out = self.dropout(self.W_O(out)) # (B, 2, D)
+        
+        # Resudual connection & flatten back to (B, 2D)
+        out = out + tokens
+        return out.view(B, self.single_dim * 2)
 
 
 # ============================================================
@@ -421,10 +458,10 @@ class CausalCrisisModel(nn.Module):
 
         # ── Stage 3a: GNN layers (GEDA style, doi dim neu causal) ──
         if use_graph:
-            self.gnn_img_1 = nn.Linear(gnn_input_dim, gnn_input_dim)
-            self.gnn_img_2 = nn.Linear(gnn_input_dim, gnn_input_dim)
-            self.gnn_txt_1 = nn.Linear(gnn_input_dim, gnn_input_dim)
-            self.gnn_txt_2 = nn.Linear(gnn_input_dim, gnn_input_dim)
+            self.gnn_img_1 = GraphSAGELayer(gnn_input_dim, gnn_input_dim)
+            self.gnn_img_2 = GraphSAGELayer(gnn_input_dim, gnn_input_dim)
+            self.gnn_txt_1 = GraphSAGELayer(gnn_input_dim, gnn_input_dim)
+            self.gnn_txt_2 = GraphSAGELayer(gnn_input_dim, gnn_input_dim)
             self.gnn_norm_img = nn.LayerNorm(gnn_input_dim)
             self.gnn_norm_txt = nn.LayerNorm(gnn_input_dim)
 
@@ -501,26 +538,17 @@ class CausalCrisisModel(nn.Module):
                     nn.init.zeros_(m.bias)
 
     def graph_propagate(self, x: torch.Tensor, adj: Optional[torch.Tensor],
-                        layer1: nn.Linear, layer2: nn.Linear,
+                        layer1: nn.Module, layer2: nn.Module,
                         norm: nn.LayerNorm) -> torch.Tensor:
-        """Simplified 2-layer graph propagation with residual (GEDA giu nguyen)."""
+        """True GraphSAGE 2-layer propagation."""
         if adj is None:
+            # Fallback when no graph is used => behaves roughly like identity (handled earlier)
             return x
         
-        # Support sparse adj
-        if adj.is_sparse:
-            h = F.relu(layer1(torch.sparse.mm(adj, x)))
-        else:
-            h = F.relu(layer1(torch.matmul(adj, x)))
+        h1 = layer1(x, adj)
+        h2 = layer2(h1, adj)
             
-        h = h + x
-        
-        if adj.is_sparse:
-            h2 = F.relu(layer2(torch.sparse.mm(adj, h)))
-        else:
-            h2 = F.relu(layer2(torch.matmul(adj, h)))
-            
-        h2 = norm(h2 + h)
+        h2 = norm(h2 + h1)
         return h2
 
     def forward(
@@ -603,11 +631,11 @@ class CausalCrisisModel(nn.Module):
 
         # ── Stage 3b: Attention Stack ──
         if self.use_attention:
-            # RESIDUAL CONNECTIONS with LayerNorm: Causal features are fragile. 
+            # SelfAttention already includes residual connection internally
             feat_img_attn = self.self_attn_img(feat_img)
             feat_txt_attn = self.self_attn_txt(feat_txt)
-            feat_img = self.norm_img(feat_img + feat_img_attn)
-            feat_txt = self.norm_txt(feat_txt + feat_txt_attn)
+            feat_img = self.norm_img(feat_img_attn)
+            feat_txt = self.norm_txt(feat_txt_attn)
             
             c_vt_attn = self.gca(feat_img, feat_txt)  # (B, causal_dim*2 = 512)
             c_vt = self.norm_gca(torch.cat([feat_img, feat_txt], dim=-1) + c_vt_attn)
