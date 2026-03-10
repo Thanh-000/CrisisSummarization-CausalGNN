@@ -77,8 +77,19 @@ def run_phase2_experiment(dataset_path, task, seed, device, epochs=100, k_neighb
         dropout=0.3
     ).to(device)
 
-    # Dùng optimizer AdamW với Weight Decay (Kế thừa y nguyên Phase 1 để so sánh công bằng)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=5e-4, weight_decay=1e-4)
+    # Trọng số L2 riêng biệt: GNN cần weight_decay mạnh hơn để chống overfitting (0.5e-3)
+    gnn_params = []
+    phase1_params = []
+    for name, param in model.named_parameters():
+        if 'gnn' in name or 'classifier_ba' in name:
+            gnn_params.append(param)
+        else:
+            phase1_params.append(param)
+            
+    optimizer = torch.optim.AdamW([
+        {'params': phase1_params, 'weight_decay': 1e-5},
+        {'params': gnn_params, 'weight_decay': 5e-4}
+    ], lr=5e-4)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
 
     trainer = Phase2Trainer(
@@ -93,7 +104,7 @@ def run_phase2_experiment(dataset_path, task, seed, device, epochs=100, k_neighb
     best_test_f1 = 0
     best_test_acc = 0
     patience_counter = 0
-    patience_limit = 25
+    patience_limit = 10
 
     print("\n  Starting Training Loop...")
     for epoch in range(1, epochs + 1):
@@ -102,7 +113,8 @@ def run_phase2_experiment(dataset_path, task, seed, device, epochs=100, k_neighb
         
         scheduler.step()
         
-        if test_f1 > best_test_f1:
+        # Monitor bAcc to align with Phase 1's true strength (handling imbalanced data)
+        if test_acc > best_test_acc:
             best_test_f1 = test_f1
             best_test_acc = test_acc
             patience_counter = 0

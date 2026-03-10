@@ -222,6 +222,9 @@ class CausalCrisisV2Model(nn.Module):
             combined = torch.cat([xc, xs_detached], dim=-1) # (batch, causal_dim + spurious_dim)
             outputs["logits_ba"] = self.classifier_ba(combined)
         
+        # GNN Only logits (for warmup or no-BA test)
+        outputs["logits_gnn"] = self.classifier(outputs["xc_graph"])
+        
         # Stage 4: Phase 1 Standard Classification (P(Y | Xc))
         outputs["logits"] = self.classifier(xc)
         

@@ -346,10 +346,12 @@ class Phase2Trainer(Phase1Trainer):
         
         # Schedule GNN & DropEdge
         enable_gnn = epoch >= 5
-        enable_dropedge = epoch >= 15
+        enable_dropedge = True # Always on when GNN is on
+        enable_backdoor = epoch >= 20 # Delay BA until memory bank focuses
         
-        # Trọng số nhánh Backdoor Adjustment tăng muộn để GNN warmup tốt hơn
-        alpha_ba = 0.5 if epoch >= 10 else 0.1
+        # Ramp cosine chậm, max 0.30
+        import math
+        alpha_ba = 0.30 * (1.0 - math.cos(math.pi * min(epoch, 50) / 50.0)) / 2.0
             
         grl_lambda = get_grl_lambda(epoch, self.max_epochs, warmup=self.grl_warmup, max_lambda=0.1)
         
@@ -394,8 +396,16 @@ class Phase2Trainer(Phase1Trainer):
             # Nhánh chuẩn P1
             loss_task_p1 = self.criterion_cls(out["logits"], labels)
             
-            # [B] Nhánh BA-GNN
-            loss_task_ba = self.criterion_cls(out["logits_ba"], labels)
+            # [B] Nhánh BA-GNN hoặc thuần GNN
+            if enable_backdoor:
+                loss_task_gnn = self.criterion_cls(out["logits_ba"], labels)
+                preds = torch.argmax(out["logits_ba"], dim=1)
+            else:
+                loss_task_gnn = self.criterion_cls(out["logits_gnn"], labels)
+                if enable_gnn:
+                    preds = torch.argmax(out["logits_gnn"], dim=1)
+                else:
+                    preds = torch.argmax(out["logits"], dim=1)
                 
             # [C] GRL Domain Loss trên Graph Causal Features
             xc_reversed = GradientReversalFunction.apply(out["xc_graph"], grl_lambda)
@@ -406,7 +416,7 @@ class Phase2Trainer(Phase1Trainer):
             loss = (self.alpha_task * loss_task_p1) + \
                    (self.alpha_supcon * loss_supcon) + \
                    (self.alpha_orth * loss_orth) + \
-                   (alpha_ba * loss_task_ba) + \
+                   (alpha_ba * loss_task_gnn) + \
                    (0.01 * loss_disc)
                    
             loss.backward()
@@ -415,10 +425,8 @@ class Phase2Trainer(Phase1Trainer):
             
             total_loss += loss.item()
             total_loss_task_p1 += loss_task_p1.item()
-            total_loss_ba += loss_task_ba.item()
+            total_loss_ba += loss_task_gnn.item()
             
-            # Show kết quả dự đoán của BA Branch! (Vì test sẽ dùng nó)
-            preds = torch.argmax(out["logits_ba"], dim=1)
             all_preds.extend(preds.cpu().numpy())
             all_targets.extend(labels.cpu().numpy())
             
@@ -439,6 +447,7 @@ class Phase2Trainer(Phase1Trainer):
         
         epoch = getattr(self, 'current_epoch', 15)
         enable_gnn = epoch >= 5
+        enable_backdoor = epoch >= 20
         
         for batch in dataloader:
             if len(batch) == 4:
@@ -453,24 +462,28 @@ class Phase2Trainer(Phase1Trainer):
             if enable_gnn:
                 adj = build_knn_graph(out_draft["xc"], self.k_neighbors, drop_edge_p=0.0, training=False)
             
-            # CHỊCH BACKDOOR ADJUSTMENT Ở ĐÂY !!!!
-            # Thay đổi distribution của Xs bằng cách lấy ngẫu nhiên từ MemoryBank thay vì Xs của data thực
-            backdoor_xs = None
-            if self.memory_bank.is_full or self.memory_bank.ptr > 0:
-                # (M, dim)
-                bank_samples = self.memory_bank.sample(M=self.m_samples)
-                # Expand to (B, M, dim)
-                backdoor_xs = bank_samples.unsqueeze(0).expand(img_feat.size(0), self.m_samples, -1)
+            if enable_backdoor:
+                # Backdoor Adjustment trong lúc Test
+                backdoor_xs = None
+                if self.memory_bank.is_full or self.memory_bank.ptr > 0:
+                    bank_samples = self.memory_bank.sample(M=self.m_samples)
+                    backdoor_xs = bank_samples.unsqueeze(0).expand(img_feat.size(0), self.m_samples, -1)
+                else:
+                    backdoor_xs = out_draft["xs"].unsqueeze(1)
+                    
+                out = self.model(img_feat, txt_feat, adj=adj, backdoor_xs=backdoor_xs)
+                loss = self.criterion_cls(out["logits_ba"], labels)
+                preds = torch.argmax(out["logits_ba"], dim=1)
             else:
-                # Dự phòng nếu bank chưa có gì (rất hiếm)
-                backdoor_xs = out_draft["xs"].unsqueeze(1)
-                
-            out = self.model(img_feat, txt_feat, adj=adj, backdoor_xs=backdoor_xs)
-            loss = self.criterion_cls(out["logits_ba"], labels)
+                out = self.model(img_feat, txt_feat, adj=adj, backdoor_xs=None)
+                if enable_gnn:
+                    loss = self.criterion_cls(out["logits_gnn"], labels)
+                    preds = torch.argmax(out["logits_gnn"], dim=1)
+                else:
+                    loss = self.criterion_cls(out["logits"], labels)
+                    preds = torch.argmax(out["logits"], dim=1)
             
             total_loss += loss.item()
-            preds = torch.argmax(out["logits_ba"], dim=1)
-            
             all_preds.extend(preds.cpu().numpy())
             all_targets.extend(labels.cpu().numpy())
             
