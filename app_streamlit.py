@@ -69,8 +69,43 @@ with st.sidebar:
 def load_engine(weights=""):
     """Load model engine 1 lần duy nhất, chia sẻ qua session"""
     engine = CausalCrisisInferenceEngine()
+    
+    # Nếu người dùng có nhập tay thì ưu tiên lấy
     if weights and os.path.exists(weights):
         engine.load_weights(weights)
+        return engine
+
+    # TỰ ĐỘNG TÌM WEIGHTS TỐT NHẤT
+    search_dirs = [
+        "checkpoints", 
+        "models", 
+        ".", 
+        "/content/drive/MyDrive/CrisisSummarization_Checkpoints", # Colab Drive
+        "../checkpoints"
+    ]
+    
+    best_weight_path = None
+    for d in search_dirs:
+        if os.path.exists(d):
+            # Lọc các file .pth, ưu tiên file có chữ 'best' và 'causal'
+            files = [f for f in os.listdir(d) if f.endswith('.pth')]
+            best_files = [f for f in files if "best" in f.lower() or "causal" in f.lower()]
+            
+            if best_files:
+                # Ưu tiên lấy file đầu tiên có chữ "best"
+                best_weight_path = os.path.join(d, best_files[0])
+                break
+            elif files:
+                # Nếu không có chữ 'best', lấy đại file .pth đầu tiên
+                best_weight_path = os.path.join(d, files[0])
+                break
+                
+    if best_weight_path:
+        st.sidebar.success(f"✅ Auto-loaded weights from:\n`{best_weight_path}`")
+        engine.load_weights(best_weight_path)
+    else:
+        st.sidebar.warning("⚠️ No weights found automatically. Model is running with RANDOM initial weights! Please train or upload a .pth file.")
+        
     return engine
 
 # Header
