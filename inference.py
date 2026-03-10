@@ -4,7 +4,7 @@ import torch
 import torch.nn.functional as F
 from PIL import Image
 import requests
-from transformers import CLIPProcessor, CLIPModel
+import open_clip
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "src"))
 from models.causalcrisis_v2 import CausalCrisisV2Model
@@ -35,10 +35,13 @@ class CausalCrisisInferenceEngine:
             
         print(f"[INFO] Initializing inference engine on {self.device}...")
         
-        # 1. Load CLIP Model (ViT-B/32 is default for CrisisMMD)
-        print("[INFO] Loading CLIP Processor and Model (openai/clip-vit-base-patch32)...")
-        self.processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-        self.clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(self.device)
+        # 1. Load CLIP Model aligned with Training (ViT-B/32 LAION2B)
+        print("[INFO] Loading CLIP Processor and Model (open_clip: ViT-B-32, laion2b_s34b_b79k)...")
+        self.clip_model, _, self.preprocess = open_clip.create_model_and_transforms(
+            "ViT-B-32", pretrained="laion2b_s34b_b79k"
+        )
+        self.tokenizer = open_clip.get_tokenizer("ViT-B-32")
+        self.clip_model = self.clip_model.to(self.device)
         self.clip_model.eval()
         
         # 2. Load CausalCrisis V2 Backbone
@@ -68,14 +71,14 @@ class CausalCrisisInferenceEngine:
             image = Image.open(image_path).convert("RGB")
             
         # Process inputs
-        inputs = self.processor(text=[text], images=image, return_tensors="pt", padding=True).to(self.device)
+        image_input = self.preprocess(image).unsqueeze(0).to(self.device)
+        text_input = self.tokenizer([text]).to(self.device)
         
         with torch.no_grad():
-            outputs = self.clip_model(**inputs)
-            img_feat = outputs.image_embeds # (1, 512)
-            txt_feat = outputs.text_embeds  # (1, 512)
+            img_feat = self.clip_model.encode_image(image_input)
+            txt_feat = self.clip_model.encode_text(text_input)
             
-            # Unit L2 Normalization (Standard for CLIP)
+            # Unit L2 Normalization (Standard for Training)
             img_feat = F.normalize(img_feat, p=2, dim=-1)
             txt_feat = F.normalize(txt_feat, p=2, dim=-1)
             
@@ -87,12 +90,8 @@ class CausalCrisisInferenceEngine:
         with torch.no_grad():
             out = self.model(img_feat, txt_feat)
             
-            # Since batch_size=1, GNN graph is just an isolated node (attention=1.0)
-            # So XC_graph is basically XC itself.
-            xc = out["xc"]
-            
-            # Forward classification
-            logits = self.model.classifier(xc)
+            # Forward classification. Bỏ qua GNN, lấy logits gốc
+            logits = out["logits"]
             probs = torch.softmax(logits, dim=-1)
             
             # Get Top 3 Predictions
