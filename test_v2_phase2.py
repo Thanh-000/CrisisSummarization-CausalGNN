@@ -81,7 +81,7 @@ def run_phase2_experiment(dataset_path, task, seed, device, epochs=100, k_neighb
     gnn_params = []
     phase1_params = []
     for name, param in model.named_parameters():
-        if 'gnn' in name or 'classifier_ba' in name:
+        if 'gnn' in name:
             gnn_params.append(param)
         else:
             phase1_params.append(param)

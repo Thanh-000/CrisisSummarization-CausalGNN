@@ -143,18 +143,8 @@ class CausalCrisisV2Model(nn.Module):
         # GRL Discriminator
         self.domain_classifier = DomainClassifier(causal_dim, num_domains)
         
-        # Stage 4: Classification (Phase 1 Baseline & GNN Warmup)
         self.classifier = nn.Sequential(
             nn.Linear(causal_dim, causal_dim // 2),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(causal_dim // 2, num_classes)
-        )
-        
-        # Stage 5: Backdoor Adjustment Classifier (Phase 2 Full)
-        # Nhận vào cả Xc (causal) và Xs (spurious) để tính P(Y | Xc, Xs)
-        self.classifier_ba = nn.Sequential(
-            nn.Linear(causal_dim + spurious_dim, causal_dim // 2),
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(causal_dim // 2, num_classes)
@@ -201,31 +191,30 @@ class CausalCrisisV2Model(nn.Module):
         else:
             outputs["xc_graph"] = xc # Keep for GRL consistency
         
-        # Stage 4/5: Classification & Backdoor Adjustment
+        # Stage 4/5: Classification & Backdoor Adjustment (Merged GNN + BA)
         if backdoor_xs is not None:
             # Inference: Backdoor Intervention (Expectation over M samples from Bank)
             M = backdoor_xs.shape[1]
-            xc_expand = xc.unsqueeze(1).expand(-1, M, -1) # (batch, M, causal_dim)
-            combined = torch.cat([xc_expand, backdoor_xs], dim=-1) # (batch, M, causal_dim + spurious_dim)
-            logits_M = self.classifier_ba(combined) # (batch, M, num_classes)
+            xc_expand = outputs["xc_graph"].unsqueeze(1).expand(-1, M, -1) # (batch, M, causal_dim)
+            
+            # Dung hòa X_gnn và X_s ở cấp độ Vector Space (Addition)
+            combined = xc_expand + backdoor_xs 
+            logits_M = self.classifier(combined) # (batch, M, num_classes)
             
             # P(Y|do(X)) = E_{Xs}[ P(Y|Xc,Xs) ]
             probs_M = torch.softmax(logits_M, dim=-1)
             expected_probs = probs_M.mean(dim=1)
-            # Log probability để kết hợp với CrossEntropy / argmax liền mạch
             outputs["logits_ba"] = torch.log(expected_probs + 1e-8)
         else:
             # Training: Use current batch's Xs to learn P(Y | Xc, Xs)
-            # Chỉ detach `xs` để ngăn Task Loss làm ô nhiễm hàm tạo Spurious Features.
-            # TUYỆT ĐỐI KHÔNG DETACH `xc` ĐỂ GNN ĐƯỢC TRAIN ĐỂ TINH CHỈNH TÍNH ĐỘC LẬP (ROBUST).
             xs_detached = xs.detach()
-            combined = torch.cat([xc, xs_detached], dim=-1) # (batch, causal_dim + spurious_dim)
-            outputs["logits_ba"] = self.classifier_ba(combined)
+            combined = outputs["xc_graph"] + xs_detached # Dung hòa GNN và Xs
+            outputs["logits_ba"] = self.classifier(combined)
         
-        # GNN Only logits (for warmup or no-BA test)
+        # GNN Only logits (cho Loss Phase 2 không có BA)
         outputs["logits_gnn"] = self.classifier(outputs["xc_graph"])
         
-        # Stage 4: Phase 1 Standard Classification (P(Y | Xc))
+        # Phase 1 Standard Classification (P(Y | Xc))
         outputs["logits"] = self.classifier(xc)
         
         return outputs

@@ -377,7 +377,7 @@ class Phase2Trainer(Phase1Trainer):
             enable_backdoor = False
             alpha_gnn = 1.0 # FULL GNN POWER
         elif config_mode == "REVAMP":
-            enable_backdoor = epoch >= 10 # Cho phép BA thử lửa lại
+            enable_backdoor = True # Chạy BA liền từ đầu vì đã dọn Linear Classifier rác
             alpha_gnn = min(0.3, 0.3 * (epoch / 15.0)) # Trọng số GNN an toàn (30% quyền lực)
         else:
             enable_backdoor = epoch >= 20
@@ -495,7 +495,7 @@ class Phase2Trainer(Phase1Trainer):
         elif config_mode == "G_ONLY":
             enable_backdoor = False
         elif config_mode == "REVAMP":
-            enable_backdoor = epoch >= 10
+            enable_backdoor = True
         else:
             enable_backdoor = False
         
