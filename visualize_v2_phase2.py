@@ -172,7 +172,7 @@ def extract_and_visualize(dataset_path, task, device, seed=42):
             adj = build_knn_graph(xc, k=trainer.k_neighbors, training=False)
             
             # Forward Full
-            backdoor_xs = trainer.memory_bank.get_samples(trainer.m_samples).to(device)
+            backdoor_xs = trainer.memory_bank.sample(trainer.m_samples).to(device)
             outputs = trainer.model(img, txt, adj=adj, backdoor_xs=backdoor_xs)
             
             preds = torch.argmax(outputs['logits_ba'], dim=-1)
