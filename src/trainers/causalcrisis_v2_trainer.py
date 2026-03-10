@@ -173,8 +173,9 @@ class Phase1Trainer:
                 loss_supcon = torch.tensor(0.0).to(self.device)
             
             # [C] Mixup
-            if use_mixup and epoch >= 5: # Kích hoạt sớm từ Epoch 5 thay vì 30
-                mixed_z, y_a, y_b, lam = mixup_data(z_unified, labels, alpha=0.5, device=self.device)
+            if use_mixup and epoch >= 5: 
+                # Chỉnh alpha lớn lên (1.0) để mixup bẻ cong không gian mạnh hơn, giảm overfitting
+                mixed_z, y_a, y_b, lam = mixup_data(z_unified, labels, alpha=1.0, device=self.device)
                 mixed_xc, _ = self.model.causal_disentangle(mixed_z)
                 mixed_logits = self.model.classifier(mixed_xc)
                 
@@ -192,7 +193,7 @@ class Phase1Trainer:
             loss = (self.alpha_task * loss_task) + \
                    (self.alpha_supcon * loss_supcon) + \
                    (self.alpha_orth * loss_orth) + \
-                   loss_disc  
+                   (0.01 * loss_disc)  # [HOTFIX] Khóa hẳn hàm GRL xuống 1% để Task Loss dẫn đường
                    
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=2.0)
