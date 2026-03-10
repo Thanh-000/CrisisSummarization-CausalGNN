@@ -248,29 +248,41 @@ class Phase1Trainer:
 # 5. K-NN GRAPH & PHASE 2 TRAINER
 # ==========================================================
 
-def build_knn_graph(features: torch.Tensor, k: int=5, drop_edge_p: float=0.0, training: bool=False) -> torch.Tensor:
+def build_knn_graph(features: torch.Tensor, k: int=5, drop_edge_p: float=0.0, training: bool=False, temperature: float=0.1) -> torch.Tensor:
     """
-    Tạo ma trận kề (Adjacency Matrix) dựa trên Top-K Cosine Similarity của batch hiện tại.
+    Tạo ma trận kề (Soft-Attention Graph) dựa trên Top-K Cosine Similarity.
+    Sử dụng Softmax để lấy Local Attention thay vì Hard-Edge (1.0/0.0).
     """
     batch_size = features.size(0)
     # Cosine similarity matrix
     norm_feat = F.normalize(features, p=2, dim=1)
     sim_matrix = torch.matmul(norm_feat, norm_feat.T) 
     
-    # Lấy top-k láng giềng
-    k = min(k, batch_size)
-    _, topk_indices = torch.topk(sim_matrix, k=k, dim=1)
+    # Loại trừ kết nối với chính mình để không làm nhiễu Attention
+    sim_matrix.fill_diagonal_(-float('inf'))
     
-    # Tạo ma trận kề
+    # Lấy top-k láng giềng
+    k = min(k, batch_size - 1)
+    if k <= 0: return torch.eye(batch_size, device=features.device)
+    
+    topk_sim, topk_indices = torch.topk(sim_matrix, k=k, dim=1)
+    
+    # GAT-like Softmax Attention Weights
+    weights = F.softmax(topk_sim / temperature, dim=1)
+    
+    # Tạo ma trận kề Soft
     adj = torch.zeros((batch_size, batch_size), device=features.device)
-    adj.scatter_(1, topk_indices, 1.0)
+    adj.scatter_(1, topk_indices, weights)
+    
+    # Symmetric Graph Transformation
+    adj = (adj + adj.t()) / 2.0
     
     # DropEdge augmentation
     if training and drop_edge_p > 0.0:
         mask = torch.rand_like(adj) > drop_edge_p
         adj = adj * mask.float()
         
-    # Chuẩn hóa để dùng cho GCN/GraphSAGE
+    # Row Normalization for GraphSAGE
     rowsum = adj.sum(1, keepdim=True)
     adj = adj / torch.clamp(rowsum, min=1e-8)
     
@@ -364,6 +376,9 @@ class Phase2Trainer(Phase1Trainer):
         elif config_mode == "G_ONLY":
             enable_backdoor = False
             alpha_gnn = 1.0 # FULL GNN POWER
+        elif config_mode == "REVAMP":
+            enable_backdoor = epoch >= 10 # Cho phép BA thử lửa lại
+            alpha_gnn = min(0.3, 0.3 * (epoch / 15.0)) # Trọng số GNN an toàn (30% quyền lực)
         else:
             enable_backdoor = epoch >= 20
             import math
@@ -479,6 +494,8 @@ class Phase2Trainer(Phase1Trainer):
             enable_backdoor = epoch >= 10
         elif config_mode == "G_ONLY":
             enable_backdoor = False
+        elif config_mode == "REVAMP":
+            enable_backdoor = epoch >= 10
         else:
             enable_backdoor = False
         

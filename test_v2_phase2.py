@@ -47,8 +47,8 @@ def run_phase2_experiment(dataset_path, task, seed, device, epochs=100, k_neighb
     print(f"  Train samples: {n_train}, Test samples: {len(test_labels)}")
 
     # 3. Create DataLoaders
-    # Về lại Batch size 32 (Baseline Phase 1 quá vững chắc rồi)
-    batch_size = 32
+    # Batch Size 256 để nâng cao chất lượng GNN Soft-Graph (do Cache Vector chiếm ít VRAM)
+    batch_size = 256
     train_dataset = TensorDataset(
         torch.tensor(train_img, dtype=torch.float32),
         torch.tensor(train_txt, dtype=torch.float32),
@@ -105,7 +105,7 @@ def run_phase2_experiment(dataset_path, task, seed, device, epochs=100, k_neighb
     best_test_acc = 0
     patience_counter = 0
     patience_limit = 15
-    trainer.config_mode = "G_ONLY"
+    trainer.config_mode = "REVAMP"
 
     print("\n  Starting Training Loop...")
     for epoch in range(1, epochs + 1):
