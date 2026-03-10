@@ -2,36 +2,58 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-class GraphSAGELayer(nn.Module):
+class HeteSAGELayer(nn.Module):
     """
-    True GraphSAGE aggregator logic:
-    h_N = Aggregate(adj, x)
-    h_out = ReLU(W * Concat(x, h_N))
+    Phase 3c: Heterophily-aware GraphSAGE Layer (Signed Message Passing)
+    Tự động nhận diện láng giềng cùng nhãn (Homophily) hay khác nhãn (Heterophily)
+    thông qua edge-gate học được.
     """
     def __init__(self, in_dim: int, out_dim: int):
         super().__init__()
-        # GraphSAGE concatenates the node's own feature with the aggregated neighborhood feature
         self.proj = nn.Linear(in_dim * 2, out_dim)
+        # Learnable gate for Homophily (1.0) vs Heterophily (-1.0)
+        self.hetero_gate = nn.Sequential(
+            nn.Linear(in_dim * 2, in_dim // 2),
+            nn.ReLU(),
+            nn.Linear(in_dim // 2, 1),
+            nn.Tanh() # Limit the coefficient to [-1, 1]
+        )
         
     def forward(self, x: torch.Tensor, adj: torch.Tensor) -> torch.Tensor:
-        if adj.is_sparse:
-            h_N = torch.sparse.mm(adj, x)
-        else:
-            h_N = torch.matmul(adj, x)
+        B = x.size(0)
         
-        # Concat original features with aggregated neighbor features
+        # Trích xuất cặp đặc trưng (Pairwise features) cho mọi nốt trong batch
+        x_i = x.unsqueeze(1).expand(B, B, -1)
+        x_j = x.unsqueeze(0).expand(B, B, -1)
+        edge_feat = torch.cat([x_i, x_j], dim=-1) # [B, B, 2*in_dim]
+        
+        # Signed Attention Gate: nốt cùng nhãn -> +1, khác nhãn -> -1
+        # [B, B]
+        gate_scores = self.hetero_gate(edge_feat).squeeze(-1) 
+        
+        # Áp phân loại (Gate) thẳng vào ma trận Soft-Attention ban đầu
+        # Chỉ những cạnh tồn tại (adj > 0) mới được mix thông điệp
+        signed_adj = adj * gate_scores
+        
+        # Message Passing
+        if signed_adj.is_sparse:
+            h_N = torch.sparse.mm(signed_adj, x)
+        else:
+            h_N = torch.matmul(signed_adj, x)
+        
+        # Concat Ego Features và Agregated Features
         h_cat = torch.cat([x, h_N], dim=-1)
         return F.relu(self.proj(h_cat))
 
 class CausalGNNModule(nn.Module):
     """
-    Stage 3B: Graph Neural Network
-    Nối các Causal Vector kết tinh bằng đồ thị k-NN và message passing.
+    Stage 3B/3C: Graph Neural Network
+    Cập nhật Phase 3c: Dùng HeteSAGELayer kết nối các Causal Vector.
     """
     def __init__(self, in_dim: int, hidden_dim: int, dropout=0.3):
         super().__init__()
-        self.conv1 = GraphSAGELayer(in_dim, hidden_dim)
-        self.conv2 = GraphSAGELayer(hidden_dim, in_dim)
+        self.conv1 = HeteSAGELayer(in_dim, hidden_dim)
+        self.conv2 = HeteSAGELayer(hidden_dim, in_dim)
         self.dropout = nn.Dropout(dropout)
         self.norm = nn.LayerNorm(in_dim)
         
