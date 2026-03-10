@@ -132,8 +132,8 @@ class Phase1Trainer:
         
         # Hyperparameters Phase 1 (Tuned to prevent loss dominance)
         self.alpha_task = 1.0
-        self.alpha_supcon = 0.5   # Giảm từ 3.0 xuống 0.5
-        self.alpha_orth = 0.1     # Giảm từ 1.0 xuống 0.1
+        self.alpha_supcon = 0.1   # Giảm mạnh SupCon xuống 0.1 để tránh nhiễu Task Loss
+        self.alpha_orth = 0.1     # Giảm Orthogonal xuống 0.1
         self.grl_warmup = 5       # Rút ngắn Warmup để GRL sớm có tác dụng
 
     def train_epoch(self, dataloader, epoch, use_mixup=True):
@@ -147,8 +147,8 @@ class Phase1Trainer:
         all_preds = []
         all_targets = []
         
-        # Ramp-up Lambda cho GRL
-        grl_lambda = get_grl_lambda(epoch, self.max_epochs, warmup=self.grl_warmup, max_lambda=1.0)
+        # Ramp-up Lambda cho GRL: max_lambda=0.1 (quan trọng! Nếu >= 1.0 mô hình sẽ sập gẫy)
+        grl_lambda = get_grl_lambda(epoch, self.max_epochs, warmup=self.grl_warmup, max_lambda=0.1)
         
         for batch in dataloader:
             if len(batch) == 4:
@@ -167,7 +167,6 @@ class Phase1Trainer:
                         orthogonal_loss(xc, xs)
             
             # [B] SupCon Loss (Tương quan kéo gần cùng nhãn)
-            # Nếu batch size quá nhỏ hoặc chỉ có 1 class trong batch, SupCon dễ gây NaN/Loss to
             try:
                 loss_supcon = self.criterion_supcon(z_unified, labels)
             except:
