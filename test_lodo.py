@@ -17,7 +17,7 @@ args = parser.parse_args()
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using device: {device}")
 
-variants = ["GEDA_baseline", "Causal_Full"]
+variants = ["Causal_NoGraph"]
 
 run_lodo_all_experiments(
     dataset_path=args.data_path,
