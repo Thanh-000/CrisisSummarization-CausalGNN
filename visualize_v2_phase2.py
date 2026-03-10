@@ -13,7 +13,7 @@ from sklearn.preprocessing import LabelEncoder
 sys.path.append(os.path.join(os.path.dirname(__file__), "src"))
 
 from models.causalcrisis_v2 import CausalCrisisV2Model
-from trainers.causalcrisis_v2_trainer import Phase2Trainer
+from trainers.causalcrisis_v2_trainer import Phase2Trainer, build_knn_graph
 from trainers.causal_crisis_trainer import extract_clip_features_with_domain
 
 def plot_confusion_matrix(y_true, y_pred, classes, task):
@@ -169,7 +169,7 @@ def extract_and_visualize(dataset_path, task, device, seed=42):
             # GNN Graph
             outputs_eval = trainer.model(img, txt, adj=None) 
             xc = outputs_eval["xc"]
-            adj = trainer._build_knn_graph(xc, training=False)
+            adj = build_knn_graph(xc, k=trainer.k_neighbors, training=False)
             
             # Forward Full
             backdoor_xs = trainer.memory_bank.get_samples(trainer.m_samples).to(device)
