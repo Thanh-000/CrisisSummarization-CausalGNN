@@ -344,14 +344,15 @@ class Phase2Trainer(Phase1Trainer):
         all_preds = []
         all_targets = []
         
-        # Schedule GNN & DropEdge
-        enable_gnn = epoch >= 5
-        enable_dropedge = True # Always on when GNN is on
-        enable_backdoor = epoch >= 20 # Delay BA until memory bank focuses
+        # Schedule GNN & DropEdge (Config E - GNN Only True Test)
+        # Bật GNN từ Epoch 1 để nhận Error Gradient sớm, kịp thời xoay chuyển tình thế trước khi Early Stopping
+        enable_gnn = True 
+        enable_dropedge = True
+        enable_backdoor = False # Cắt đứt hoàn toàn Backdoor Adjustment
         
-        # Ramp cosine chậm, max 0.30
+        # GNN Weight Ramp: Lên max = 0.5 tại Epoch 15 để theo kịp tiến độ Patience=10
         import math
-        alpha_ba = 0.30 * (1.0 - math.cos(math.pi * min(epoch, 50) / 50.0)) / 2.0
+        alpha_gnn = 0.5 * (1.0 - math.cos(math.pi * min(epoch, 15) / 15.0)) / 2.0
             
         grl_lambda = get_grl_lambda(epoch, self.max_epochs, warmup=self.grl_warmup, max_lambda=0.1)
         
@@ -416,7 +417,7 @@ class Phase2Trainer(Phase1Trainer):
             loss = (self.alpha_task * loss_task_p1) + \
                    (self.alpha_supcon * loss_supcon) + \
                    (self.alpha_orth * loss_orth) + \
-                   (alpha_ba * loss_task_gnn) + \
+                   (alpha_gnn * loss_task_gnn) + \
                    (0.01 * loss_disc)
                    
             loss.backward()
@@ -434,7 +435,7 @@ class Phase2Trainer(Phase1Trainer):
         
         if epoch % 5 == 0 or epoch == 1:
             n_b = len(dataloader)
-            print(f"      [Phase 2 Loss] Total: {total_loss/n_b:.3f} | MLP Task: {total_loss_task_p1/n_b:.3f} | GNN-BA Task: {total_loss_ba/n_b:.3f} | BA_Wt: {alpha_ba:.2f}")
+            print(f"      [Phase 2 Loss] Total: {total_loss/n_b:.3f} | MLP Task: {total_loss_task_p1/n_b:.3f} | GNN Task: {total_loss_ba/n_b:.3f} | GNN_Wt: {alpha_gnn:.2f}")
             
         return total_loss / len(dataloader), epoch_f1
 
@@ -446,8 +447,8 @@ class Phase2Trainer(Phase1Trainer):
         all_targets = []
         
         epoch = getattr(self, 'current_epoch', 15)
-        enable_gnn = epoch >= 5
-        enable_backdoor = epoch >= 20
+        enable_gnn = True
+        enable_backdoor = False
         
         for batch in dataloader:
             if len(batch) == 4:
