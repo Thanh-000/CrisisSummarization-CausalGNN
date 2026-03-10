@@ -344,15 +344,25 @@ class Phase2Trainer(Phase1Trainer):
         all_preds = []
         all_targets = []
         
-        # Schedule GNN & DropEdge (Config E - GNN Only True Test)
-        # Bật GNN từ Epoch 1 để nhận Error Gradient sớm, kịp thời xoay chuyển tình thế trước khi Early Stopping
+        # Schedule GNN & DropEdge 
         enable_gnn = True 
         enable_dropedge = True
-        enable_backdoor = False # Cắt đứt hoàn toàn Backdoor Adjustment
         
-        # GNN Weight Ramp: Lên max = 0.5 tại Epoch 15 để theo kịp tiến độ Patience=10
-        import math
-        alpha_gnn = 0.5 * (1.0 - math.cos(math.pi * min(epoch, 15) / 15.0)) / 2.0
+        # Nhận Mode Config từ class (default is E)
+        config_mode = getattr(self, "config_mode", "E")
+        
+        if config_mode == "E":
+            enable_backdoor = False # Cắt đứt hoàn toàn Backdoor Adjustment
+            # GNN Weight Ramp Tuyến tính Max=0.2 tại Epoch 15
+            alpha_gnn = min(0.2, 0.2 * (epoch / 15.0))
+        elif config_mode == "C":
+            enable_backdoor = epoch >= 10 # Delay BA
+            # Ramp Tuyến tính Max=0.2 tại Epoch 15
+            alpha_gnn = min(0.2, 0.2 * (epoch / 15.0))
+        else:
+            enable_backdoor = epoch >= 20
+            import math
+            alpha_gnn = 0.5 * (1.0 - math.cos(math.pi * min(epoch, 15) / 15.0)) / 2.0
             
         grl_lambda = get_grl_lambda(epoch, self.max_epochs, warmup=self.grl_warmup, max_lambda=0.1)
         
@@ -447,8 +457,15 @@ class Phase2Trainer(Phase1Trainer):
         all_targets = []
         
         epoch = getattr(self, 'current_epoch', 15)
+        config_mode = getattr(self, "config_mode", "E")
         enable_gnn = True
-        enable_backdoor = False
+        
+        if config_mode == "E":
+            enable_backdoor = False
+        elif config_mode == "C":
+            enable_backdoor = epoch >= 10
+        else:
+            enable_backdoor = False
         
         for batch in dataloader:
             if len(batch) == 4:
