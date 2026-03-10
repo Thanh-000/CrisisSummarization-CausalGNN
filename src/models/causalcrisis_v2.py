@@ -216,11 +216,10 @@ class CausalCrisisV2Model(nn.Module):
             outputs["logits_ba"] = torch.log(expected_probs + 1e-8)
         else:
             # Training: Use current batch's Xs to learn P(Y | Xc, Xs)
-            # Detach cả xc và xs để classifier_ba học thuần phân phối xác suất 
-            # mà KHÔNG làm cho xc bị "lười" đi (lazy causal feature).
+            # Chỉ detach `xs` để ngăn Task Loss làm ô nhiễm hàm tạo Spurious Features.
+            # TUYỆT ĐỐI KHÔNG DETACH `xc` ĐỂ GNN ĐƯỢC TRAIN ĐỂ TINH CHỈNH TÍNH ĐỘC LẬP (ROBUST).
             xs_detached = xs.detach()
-            xc_detached = xc.detach()
-            combined = torch.cat([xc_detached, xs_detached], dim=-1) # (batch, causal_dim + spurious_dim)
+            combined = torch.cat([xc, xs_detached], dim=-1) # (batch, causal_dim + spurious_dim)
             outputs["logits_ba"] = self.classifier_ba(combined)
         
         # Stage 4: Phase 1 Standard Classification (P(Y | Xc))

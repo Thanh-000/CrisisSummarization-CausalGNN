@@ -47,8 +47,8 @@ def run_phase2_experiment(dataset_path, task, seed, device, epochs=100, k_neighb
     print(f"  Train samples: {n_train}, Test samples: {len(test_labels)}")
 
     # 3. Create DataLoaders
-    # Batch size lớn hơn một chút để k-NN Graph phong phú
-    batch_size = 64 
+    # Về lại Batch size 32 (Baseline Phase 1 quá vững chắc rồi)
+    batch_size = 32
     train_dataset = TensorDataset(
         torch.tensor(train_img, dtype=torch.float32),
         torch.tensor(train_txt, dtype=torch.float32),
@@ -77,8 +77,8 @@ def run_phase2_experiment(dataset_path, task, seed, device, epochs=100, k_neighb
         dropout=0.3
     ).to(device)
 
-    # Dùng optimizer AdamW với Weight Decay
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4) # Higher LR cho GNN
+    # Dùng optimizer AdamW với Weight Decay (Kế thừa y nguyên Phase 1 để so sánh công bằng)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=5e-4, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
 
     trainer = Phase2Trainer(
