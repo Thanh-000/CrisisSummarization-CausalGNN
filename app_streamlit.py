@@ -136,57 +136,13 @@ with col2:
                 
                 # Gọi Model Predict
                 try:
-                    if has_weights:
-                        # predictions trả về danh sách [(label, prob), ...] đã xếp giảm dần
-                        predictions = engine.predict(temp_img_path, input_text)
-                    else:
-                        # KHI KHÔNG CÓ WEIGHTS: TỰ ĐỘNG MOCK KẾT QUẢ TỐT NHẤT TỪ BỘ NHỚ THEO YÊU CẦU
-                        # Dựa vào Phân tích từ Pha 3:
-                        text_lower = input_text.lower()
-                        if "flood" in text_lower or "water" in text_lower or "rain" in text_lower:
-                            predictions = [
-                                ('affected_individuals', 86.4),
-                                ('infrastructure_and_utility_damage', 11.2),
-                                ('rescue_volunteering_or_donation_effort', 1.8)
-                            ]
-                        elif "hurricane" in text_lower or "storm" in text_lower or "wind" in text_lower:
-                            predictions = [
-                                ('infrastructure_and_utility_damage', 81.3),
-                                ('affected_individuals', 14.5),
-                                ('other_relevant_information', 3.2)
-                            ]
-                        elif "earthquake" in text_lower or "shake" in text_lower or "rubble" in text_lower:
-                            predictions = [
-                                ('infrastructure_and_utility_damage', 89.1),
-                                ('injured_or_dead_people', 8.4),
-                                ('rescue_volunteering_or_donation_effort', 2.1)
-                            ]
-                        elif "fire" in text_lower or "burn" in text_lower or "wildfire" in text_lower:
-                            predictions = [
-                                ('infrastructure_and_utility_damage', 78.5),
-                                ('affected_individuals', 16.3),
-                                ('other_relevant_information', 4.1)
-                            ]
-                        elif "not good" in text_lower and "lol" in text_lower:
-                            # Tái hiện lại case "GMB Logo" mà mô hình nhận định là rác
-                            predictions = [
-                                ('other_relevant_information', 82.3),
-                                ('not_humanitarian', 15.5),
-                                ('vehicle_damage', 1.2)
-                            ]
-                        else:
-                            # Generic fallback for generic text
-                            predictions = [
-                                ('not_humanitarian', 75.4),
-                                ('other_relevant_information', 20.1),
-                                ('affected_individuals', 3.5)
-                            ]
-                            
-                    st.success("Analysis Complete!")
-                    
                     if not has_weights:
-                        st.info("💡 **Ghi chú Học thuật**: Khung dự đoán này đang truy xuất từ bộ nhớ kết quả tối ưu (bAcc ~61.52% từ LODO Phase 3a) để Demo, vì máy Colab đang không mount được file Pytorch cuối cùng.")
+                        st.warning("⚠️ **Chưa load tệp Weights!** Máy đang chạy với bộ trọng số ngẫu nhiên (Random Weights). Vui lòng dán chính xác đường dẫn tệp `.pth` tốt nhất của bạn vào ô 'Path to Model Weights' ở thanh công cụ bên trái.")
                     
+                    # predictions trả về danh sách [(label, prob), ...] đã xếp giảm dần
+                    predictions = engine.predict(temp_img_path, input_text)
+                    
+                    st.success("Analysis Complete!")
                     st.markdown("### Top Predictions")
                     
                     # Hiển thị trực quan từng phán đoán
