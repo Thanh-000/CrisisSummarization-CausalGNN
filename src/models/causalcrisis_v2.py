@@ -100,18 +100,7 @@ class CausalDisentanglerV2(nn.Module):
         return xc, xs
 
 
-class DomainClassifier(nn.Module):
-    """Dùng cho GRL (Gradient Reversal Layer) để ép X_c độc lập với Domain"""
-    def __init__(self, in_dim: int, num_domains: int):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(in_dim, in_dim // 2),
-            nn.ReLU(),
-            nn.Linear(in_dim // 2, num_domains)
-        )
-        
-    def forward(self, x: torch.Tensor):
-        return self.net(x)
+
 
 class CausalCrisisV2Model(nn.Module):
     """
@@ -140,8 +129,7 @@ class CausalCrisisV2Model(nn.Module):
         # Stage 3B: GNN Module Phase 2
         self.gnn = CausalGNNModule(causal_dim, causal_dim, dropout)
         
-        # GRL Discriminator
-        self.domain_classifier = DomainClassifier(causal_dim, num_domains)
+
         
         self.classifier = nn.Sequential(
             nn.Linear(causal_dim, causal_dim // 2),
@@ -181,8 +169,7 @@ class CausalCrisisV2Model(nn.Module):
         outputs["xc"] = xc
         outputs["xs"] = xs
         
-        # Domain logits cho Loss Adversarial (L_disc)
-        outputs["domain_logits"] = self.domain_classifier(xc)
+
         
         # Stage 3B: Causal Graph Neural Network (Phase 2)
         if adj is not None:

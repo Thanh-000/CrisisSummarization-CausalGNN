@@ -88,32 +88,53 @@ def mixup_criterion(criterion, pred, y_a, y_b, lam):
 # 3. SCHEDULE GRL (GRADIENT REVERSAL LAYER LAMBDA)
 # ==========================================================
 
-def get_grl_lambda(epoch, max_epochs, warmup=20, max_lambda=10.0, gamma=10):
+def get_mmd_lambda(epoch, max_epochs, warmup=5, max_lambda=0.1, gamma=10):
     """
-    Tăng dần trọng số GRL theo Cosine hoặc Logistic Curve.
+    Tăng dần trọng số MMD theo Logistic Curve.
     Trong epochs đầu (Warmup), phạt domain rất nhẹ hoặc bằng 0.
-    Theo CAMO, max_lambda có thể lên đến 10.
     """
     if epoch < warmup:
         return 0.0
     p = (epoch - warmup) / max(max_epochs - warmup, 1)
     return float(max_lambda * (2.0 / (1.0 + np.exp(-gamma * p)) - 1.0))
 
-class GradientReversalFunction(torch.autograd.Function):
+class ConditionalMMDLoss(nn.Module):
     """
-    Lớp Autograd để thực hiện nghịch đảo gradient (GRL).
-    Chiều đi (forward): Giữ nguyên input.
-    Chiều về (backward): Đảo ngược gradient và nhân với lambda.
+    Class-conditional Maximum Mean Discrepancy (Soft-MMD).
+    Ép các phân phối của Cùng Nhãn giữa các Domain khác nhau phải gần nhau.
+    Bảo toàn Class Separability, khắc phục nhược điểm của GRL.
     """
-    @staticmethod
-    def forward(ctx, x, alpha):
-        ctx.save_for_backward(torch.tensor(alpha))
-        return x
-    
-    @staticmethod
-    def backward(ctx, grad_output):
-        alpha, = ctx.saved_tensors
-        return -alpha * grad_output, None
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, features, labels, domains):
+        unique_classes = torch.unique(labels)
+        unique_domains = torch.unique(domains)
+        
+        loss = 0.0
+        count = 0
+        for c in unique_classes:
+            # Lấy features của class C
+            class_mask = (labels == c)
+            c_features = features[class_mask]
+            c_domains = domains[class_mask]
+            
+            c_unique_domains = torch.unique(c_domains)
+            for i in range(len(c_unique_domains)):
+                for j in range(i + 1, len(c_unique_domains)):
+                    d1 = c_unique_domains[i]
+                    d2 = c_unique_domains[j]
+                    
+                    f1 = c_features[c_domains == d1].mean(dim=0)
+                    f2 = c_features[c_domains == d2].mean(dim=0)
+                    
+                    loss += torch.sum((f1 - f2) ** 2)
+                    count += 1
+                        
+        if count > 0:
+            return loss / count
+        else:
+            return torch.tensor(0.0, device=features.device, requires_grad=True)
 
 # ==========================================================
 # 4. TRAINING LOOP CHO CAUSALCRISIS V2 (PHASE 1)
@@ -127,14 +148,14 @@ class Phase1Trainer:
         self.max_epochs = max_epochs
         
         self.criterion_cls = nn.CrossEntropyLoss()
-        self.criterion_domain = nn.CrossEntropyLoss()
+        self.criterion_domain = ConditionalMMDLoss() # Thay vì CE Loss cho Domain -> Dùng MMD
         self.criterion_supcon = SupConLoss(temperature=0.7)
         
         # Hyperparameters Phase 1 (Tuned to prevent loss dominance)
         self.alpha_task = 1.0
         self.alpha_supcon = 0.1   # Giảm mạnh SupCon xuống 0.1 để tránh nhiễu Task Loss
         self.alpha_orth = 0.1     # Giảm Orthogonal xuống 0.1
-        self.grl_warmup = 5       # Rút ngắn Warmup để GRL sớm có tác dụng
+        self.mmd_warmup = 5       # Thời gian warmup cho Soft-MMD
 
     def train_epoch(self, dataloader, epoch, use_mixup=True):
         self.model.train()
@@ -147,8 +168,8 @@ class Phase1Trainer:
         all_preds = []
         all_targets = []
         
-        # Ramp-up Lambda cho GRL: max_lambda=0.1 (quan trọng! Nếu >= 1.0 mô hình sẽ sập gẫy)
-        grl_lambda = get_grl_lambda(epoch, self.max_epochs, warmup=self.grl_warmup, max_lambda=0.1)
+        # Ramp-up Lambda cho MMD
+        mmd_lambda = get_mmd_lambda(epoch, self.max_epochs, warmup=self.mmd_warmup, max_lambda=0.1)
         
         for batch in dataloader:
             if len(batch) == 4:
@@ -185,15 +206,13 @@ class Phase1Trainer:
                 loss_task = self.criterion_cls(out["logits"], labels)
                 preds = torch.argmax(out["logits"], dim=1)
                 
-            # [D] GRL Domain Loss
-            xc_reversed = GradientReversalFunction.apply(xc, grl_lambda)
-            domain_logits_adv = self.model.domain_classifier(xc_reversed)
-            loss_disc = self.criterion_domain(domain_logits_adv, domains)
+            # [D] Soft-MMD Domain Loss
+            loss_disc = self.criterion_domain(xc, labels, domains) * mmd_lambda
             
             loss = (self.alpha_task * loss_task) + \
                    (self.alpha_supcon * loss_supcon) + \
                    (self.alpha_orth * loss_orth) + \
-                   (0.01 * loss_disc)  # [HOTFIX] Khóa hẳn hàm GRL xuống 1% để Task Loss dẫn đường
+                   loss_disc  # [HOTFIX] Soft-MMD thay cho GRL
                    
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=2.0)
@@ -214,7 +233,7 @@ class Phase1Trainer:
         # Chỉ in breakdown loss ở batch cuối/tổng hợp để dễ xem
         if epoch % 5 == 0 or epoch == 1:
             n_b = len(dataloader)
-            print(f"      [Loss Breakdown] Task: {total_loss_task/n_b:.3f} | SupCon: {total_loss_sup/n_b:.3f} | Orth: {total_loss_orth/n_b:.3f} | GRL: {total_loss_disc/n_b:.3f}")
+            print(f"      [Loss Breakdown] Task: {total_loss_task/n_b:.3f} | SupCon: {total_loss_sup/n_b:.3f} | Orth: {total_loss_orth/n_b:.3f} | MMD: {total_loss_disc/n_b:.3f}")
             
         return total_loss / len(dataloader), epoch_f1
 
@@ -384,7 +403,7 @@ class Phase2Trainer(Phase1Trainer):
             import math
             alpha_gnn = 0.5 * (1.0 - math.cos(math.pi * min(epoch, 15) / 15.0)) / 2.0
             
-        grl_lambda = get_grl_lambda(epoch, self.max_epochs, warmup=self.grl_warmup, max_lambda=0.1)
+        mmd_lambda = get_mmd_lambda(epoch, self.max_epochs, warmup=self.mmd_warmup, max_lambda=0.1)
         
         for batch in dataloader:
             if len(batch) == 4:
@@ -443,10 +462,8 @@ class Phase2Trainer(Phase1Trainer):
                 else:
                     preds = torch.argmax(out["logits"], dim=1)
                 
-            # [C] GRL Domain Loss trên Graph Causal Features
-            xc_reversed = GradientReversalFunction.apply(out["xc_graph"], grl_lambda)
-            domain_logits_adv = self.model.domain_classifier(xc_reversed)
-            loss_disc = self.criterion_domain(domain_logits_adv, domains)
+            # [C] Soft-MMD Domain Loss trên Graph Causal Features
+            loss_disc = self.criterion_domain(out["xc_graph"], labels, domains) * mmd_lambda
                 
             # --- 4. TỔNG HỢP LOSS ---
             if config_mode == "G_ONLY":
@@ -456,7 +473,7 @@ class Phase2Trainer(Phase1Trainer):
                        (self.alpha_supcon * loss_supcon) + \
                        (self.alpha_orth * loss_orth) + \
                        (alpha_gnn * loss_task_gnn) + \
-                       (0.01 * loss_disc)
+                       loss_disc
                    
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=2.0)
