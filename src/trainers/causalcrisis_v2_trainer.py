@@ -338,24 +338,17 @@ class Phase2Trainer(Phase1Trainer):
         self.model.train()
         total_loss = 0
         total_loss_task_p1 = 0
-        total_loss_graph = 0
+        total_loss_ba = 0
         
         all_preds = []
         all_targets = []
         
-        # Lịch trình siêu cấp (Progressive Introduction):
-        # Epoch 0-4: Chỉ chạy MLP Phase 1 (GNN ngủ yên)
-        # Epoch 5-14: Mở GNN từ từ (alpha ramp) nhưng chưa thả DropEdge/Backdoor
-        # Epoch 15+: Bật Full giáp (DropEdge + Backdoor Adjustment + GNN Full Power)
+        # Schedule GNN & DropEdge
         enable_gnn = epoch >= 5
         enable_dropedge = epoch >= 15
-        enable_backdoor = epoch >= 15
         
-        alpha_graph = 0.0
-        if 5 <= epoch < 15:
-            alpha_graph = 0.5 * ((epoch - 5) / 10.0) # Tăng dần từ 0 lên 0.5
-        elif epoch >= 15:
-            alpha_graph = 0.5
+        # Trọng số nhánh Backdoor Adjustment tăng muộn để GNN warmup tốt hơn
+        alpha_ba = 0.5 if epoch >= 10 else 0.1
             
         grl_lambda = get_grl_lambda(epoch, self.max_epochs, warmup=self.grl_warmup, max_lambda=0.1)
         
@@ -376,58 +369,43 @@ class Phase2Trainer(Phase1Trainer):
             # Update FIFO Spurious Bank
             self.memory_bank.update(xs_draft)
             
-            # Phải forward qua toàn bộ model không có GNN/BA để backward gradient cho P1
-            out_p1 = self.model(img_feat, txt_feat)
-            z_unified_p1, xc_p1, xs_p1 = out_p1["z_unified"], out_p1["xc"], out_p1["xs"]
-            
-            # [A] Phase 1 Losses (Orthogonal, SupCon)
-            loss_orth = orthogonal_loss(out_p1["z_img_g"], out_p1["z_img_s"]) + \
-                        orthogonal_loss(out_p1["z_txt_g"], out_p1["z_txt_s"]) + \
-                        orthogonal_loss(xc_p1, xs_p1)
-            
-            try:
-                loss_supcon = self.criterion_supcon(z_unified_p1, labels) 
-            except:
-                loss_supcon = torch.tensor(0.0).to(self.device)
-                
-            loss_task_p1 = self.criterion_cls(out_p1["logits"], labels)
-            
-            # --- 2. CHẠY THẬT PHASE 2 (GNN + BACKDOOR) ---
-            loss_task_p2 = torch.tensor(0.0).to(self.device)
+            # --- 2. XÂY GRAPH NẾU ENABLE ---
+            adj = None
             if enable_gnn:
-                # Xây dựng ma trận kề động có chém cạnh (DropEdge)
-                adj = build_knn_graph(xc_p1.detach(), self.k_neighbors,
+                adj = build_knn_graph(xc_draft, self.k_neighbors,
                                       drop_edge_p=self.drop_edge_p if enable_dropedge else 0.0,
                                       training=True)
                 
-                # Rút ngẫu nhiên M Spurious Samples từ Memory Bank
-                backdoor_xs = None
-                if enable_backdoor and self.memory_bank.is_full:
-                    bank_samples = self.memory_bank.sample(M=self.m_samples) # (M, dim)
-                    backdoor_xs = bank_samples.unsqueeze(0).expand(xc_p1.size(0), self.m_samples, -1) # (B, M, dim)
+            # --- 3. FORWARD CHÍNH THỨC ---
+            # training=True -> backdoor_xs = None. Model tự dùng Xs detached của lô hiện tại để build logits_ba
+            out = self.model(img_feat, txt_feat, adj=adj, backdoor_xs=None)
+            
+            # [A] Phase 1 Losses (Orthogonal, SupCon, ML_Task)
+            loss_orth = orthogonal_loss(out["z_img_g"], out["z_img_s"]) + \
+                        orthogonal_loss(out["z_txt_g"], out["z_txt_s"]) + \
+                        orthogonal_loss(out["xc"], out["xs"])
+            
+            try:
+                loss_supcon = self.criterion_supcon(out["z_unified"], labels) 
+            except:
+                loss_supcon = torch.tensor(0.0).to(self.device)
                 
-                out_p2 = self.model(img_feat, txt_feat, adj=adj, backdoor_xs=backdoor_xs)
-                loss_task_p2 = self.criterion_cls(out_p2["logits"], labels)
+            # Nhánh chuẩn P1
+            loss_task_p1 = self.criterion_cls(out["logits"], labels)
+            
+            # [B] Nhánh BA-GNN
+            loss_task_ba = self.criterion_cls(out["logits_ba"], labels)
                 
-                # GRL Domain Loss trên Graph Causal Features (Bản update xịn)
-                xc_reversed = GradientReversalFunction.apply(out_p2["xc_graph"], grl_lambda)
-                domain_logits_adv = self.model.domain_classifier(xc_reversed)
-                loss_disc = self.criterion_domain(domain_logits_adv, domains)
+            # [C] GRL Domain Loss trên Graph Causal Features
+            xc_reversed = GradientReversalFunction.apply(out["xc_graph"], grl_lambda)
+            domain_logits_adv = self.model.domain_classifier(xc_reversed)
+            loss_disc = self.criterion_domain(domain_logits_adv, domains)
                 
-                preds = torch.argmax(out_p2["logits"], dim=1)
-            else:
-                preds = torch.argmax(out_p1["logits"], dim=1)
-                
-                # GRL cho Phase 1
-                xc_reversed = GradientReversalFunction.apply(xc_p1, grl_lambda)
-                domain_logits_adv = self.model.domain_classifier(xc_reversed)
-                loss_disc = self.criterion_domain(domain_logits_adv, domains)
-                
-            # --- 3. TỔNG HỢP LOSS THEO SCHEDULE ---
+            # --- 4. TỔNG HỢP LOSS ---
             loss = (self.alpha_task * loss_task_p1) + \
                    (self.alpha_supcon * loss_supcon) + \
                    (self.alpha_orth * loss_orth) + \
-                   (alpha_graph * loss_task_p2) + \
+                   (alpha_ba * loss_task_ba) + \
                    (0.01 * loss_disc)
                    
             loss.backward()
@@ -436,8 +414,10 @@ class Phase2Trainer(Phase1Trainer):
             
             total_loss += loss.item()
             total_loss_task_p1 += loss_task_p1.item()
-            total_loss_graph += loss_task_p2.item() if isinstance(loss_task_p2, torch.Tensor) else loss_task_p2
+            total_loss_ba += loss_task_ba.item()
             
+            # Show kết quả dự đoán của BA Branch! (Vì test sẽ dùng nó)
+            preds = torch.argmax(out["logits_ba"], dim=1)
             all_preds.extend(preds.cpu().numpy())
             all_targets.extend(labels.cpu().numpy())
             
@@ -445,7 +425,7 @@ class Phase2Trainer(Phase1Trainer):
         
         if epoch % 5 == 0 or epoch == 1:
             n_b = len(dataloader)
-            print(f"      [Phase 2 Loss] Total: {total_loss/n_b:.3f} | MLP Task: {total_loss_task_p1/n_b:.3f} | GNN Task: {total_loss_graph/n_b:.3f} | GraphWt: {alpha_graph:.2f}")
+            print(f"      [Phase 2 Loss] Total: {total_loss/n_b:.3f} | MLP Task: {total_loss_task_p1/n_b:.3f} | GNN-BA Task: {total_loss_ba/n_b:.3f} | BA_Wt: {alpha_ba:.2f}")
             
         return total_loss / len(dataloader), epoch_f1
 
@@ -464,20 +444,26 @@ class Phase2Trainer(Phase1Trainer):
                 
             out_draft = self.model(img_feat, txt_feat)
             
-            # Inference không cần DropEdge
+            # Khác với P1, test Phase 2 dùng GNN mà KHÔNG DropEdge
             adj = build_knn_graph(out_draft["xc"], self.k_neighbors, drop_edge_p=0.0, training=False)
             
-            # Backdoor Adjustment trong lúc Test (Bắt buộc để nhất quán)
+            # CHỊCH BACKDOOR ADJUSTMENT Ở ĐÂY !!!!
+            # Thay đổi distribution của Xs bằng cách lấy ngẫu nhiên từ MemoryBank thay vì Xs của data thực
             backdoor_xs = None
             if self.memory_bank.is_full or self.memory_bank.ptr > 0:
+                # (M, dim)
                 bank_samples = self.memory_bank.sample(M=self.m_samples)
+                # Expand to (B, M, dim)
                 backdoor_xs = bank_samples.unsqueeze(0).expand(img_feat.size(0), self.m_samples, -1)
+            else:
+                # Dự phòng nếu bank chưa có gì (rất hiếm)
+                backdoor_xs = out_draft["xs"].unsqueeze(1)
                 
             out = self.model(img_feat, txt_feat, adj=adj, backdoor_xs=backdoor_xs)
-            loss = self.criterion_cls(out["logits"], labels)
+            loss = self.criterion_cls(out["logits_ba"], labels)
             
             total_loss += loss.item()
-            preds = torch.argmax(out["logits"], dim=1)
+            preds = torch.argmax(out["logits_ba"], dim=1)
             
             all_preds.extend(preds.cpu().numpy())
             all_targets.extend(labels.cpu().numpy())

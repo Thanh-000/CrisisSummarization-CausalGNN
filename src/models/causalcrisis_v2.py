@@ -198,18 +198,25 @@ class CausalCrisisV2Model(nn.Module):
         if adj is not None:
             xc = self.gnn(xc, adj)
             outputs["xc_graph"] = xc
+        else:
+            outputs["xc_graph"] = xc # Keep for GRL consistency
         
         # Stage 4/5: Classification & Backdoor Adjustment
         if backdoor_xs is not None:
-            # backdoor_xs shape: (batch_size, M_samples, spurious_dim)
+            # Inference: Backdoor Intervention (Expectation over M samples from Bank)
             M = backdoor_xs.shape[1]
             xc_expand = xc.unsqueeze(1).expand(-1, M, -1) # (batch, M, causal_dim)
             combined = torch.cat([xc_expand, backdoor_xs], dim=-1) # (batch, M, causal_dim + spurious_dim)
-            
-            # Tính logits cho mọi combinations và trung bình lại (Expectation over Xs)
             logits_M = self.classifier_ba(combined) # (batch, M, num_classes)
-            outputs["logits"] = logits_M.mean(dim=1)
+            outputs["logits_ba"] = logits_M.mean(dim=1)
         else:
-            outputs["logits"] = self.classifier(xc)
+            # Training: Use current batch's Xs to learn P(Y | Xc, Xs)
+            # DETACH xs to prevent task loss from leaking into Spurious feature extraction!
+            xs_detached = xs.detach()
+            combined = torch.cat([xc, xs_detached], dim=-1) # (batch, causal_dim + spurious_dim)
+            outputs["logits_ba"] = self.classifier_ba(combined)
+        
+        # Stage 4: Phase 1 Standard Classification (P(Y | Xc))
+        outputs["logits"] = self.classifier(xc)
         
         return outputs
