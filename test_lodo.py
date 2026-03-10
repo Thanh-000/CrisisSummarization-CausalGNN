@@ -23,7 +23,7 @@ run_lodo_all_experiments(
     dataset_path=args.data_path,
     task=args.task,
     size="all",
-    seeds=[42],
+    seed=42,
     device=device,
     results_csv=args.results_csv,
     variants_to_run=variants
