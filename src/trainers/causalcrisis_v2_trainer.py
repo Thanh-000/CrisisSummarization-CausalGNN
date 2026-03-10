@@ -276,6 +276,8 @@ def build_knn_graph(features: torch.Tensor, k: int=5, drop_edge_p: float=0.0, tr
     
     return adj
 
+
+
 class MemoryBank:
     """Kho lưu trữ FIFO K mẫu Spurious Features (K=256) cho Backdoor Adjustment"""
     def __init__(self, size=256, dim=256, device='cuda'):
@@ -359,6 +361,9 @@ class Phase2Trainer(Phase1Trainer):
             enable_backdoor = epoch >= 10 # Delay BA
             # Ramp Tuyến tính Max=0.2 tại Epoch 15
             alpha_gnn = min(0.2, 0.2 * (epoch / 15.0))
+        elif config_mode == "G_ONLY":
+            enable_backdoor = False
+            alpha_gnn = 1.0 # FULL GNN POWER
         else:
             enable_backdoor = epoch >= 20
             import math
@@ -376,11 +381,16 @@ class Phase2Trainer(Phase1Trainer):
             self.optimizer.zero_grad()
             
             # --- 1. CHẠY NHÁP PHASE 1 ĐỂ LẤY Xc VÀ LƯU Xs VÀO MEMORY BANK ---
-            with torch.no_grad():
-                out_draft = self.model(img_feat, txt_feat)
-                xc_draft, xs_draft = out_draft["xc"], out_draft["xs"]
+            out_draft = self.model(img_feat, txt_feat)
             
-            # Update FIFO Spurious Bank
+            if config_mode == "G_ONLY":
+                # DETACH Xc, Xs để chặn hoàn toàn gradient chảy về MLP từ nhánh GNN
+                xc_draft = out_draft["xc"].detach()
+                xs_draft = out_draft["xs"].detach()
+            else:
+                xc_draft, xs_draft = out_draft["xc"], out_draft["xs"]
+                
+             # Update FIFO Spurious Bank
             self.memory_bank.update(xs_draft)
             
             # --- 2. XÂY GRAPH NẾU ENABLE ---
@@ -424,11 +434,14 @@ class Phase2Trainer(Phase1Trainer):
             loss_disc = self.criterion_domain(domain_logits_adv, domains)
                 
             # --- 4. TỔNG HỢP LOSS ---
-            loss = (self.alpha_task * loss_task_p1) + \
-                   (self.alpha_supcon * loss_supcon) + \
-                   (self.alpha_orth * loss_orth) + \
-                   (alpha_gnn * loss_task_gnn) + \
-                   (0.01 * loss_disc)
+            if config_mode == "G_ONLY":
+                loss = loss_task_gnn
+            else:
+                loss = (self.alpha_task * loss_task_p1) + \
+                       (self.alpha_supcon * loss_supcon) + \
+                       (self.alpha_orth * loss_orth) + \
+                       (alpha_gnn * loss_task_gnn) + \
+                       (0.01 * loss_disc)
                    
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=2.0)
@@ -464,6 +477,8 @@ class Phase2Trainer(Phase1Trainer):
             enable_backdoor = False
         elif config_mode == "C":
             enable_backdoor = epoch >= 10
+        elif config_mode == "G_ONLY":
+            enable_backdoor = False
         else:
             enable_backdoor = False
         
