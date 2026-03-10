@@ -13,9 +13,9 @@ from models.causalcrisis_v2 import CausalCrisisV2Model
 from trainers.causalcrisis_v2_trainer import Phase2Trainer
 from trainers.causal_crisis_trainer import extract_clip_features_with_domain
 
-def run_phase2_experiment(dataset_path, task, seed, device, epochs=100, k_neighbors=5):
+def run_phase2_experiment(dataset_path, task, seed, device, epochs=100, k_neighbors=3, m_samples=4):
     print(f"\n============================================================")
-    print(f"  CausalCrisis v2 (Phase 2 w/ GNN) | task={task} | seed={seed}")
+    print(f"  CausalCrisis v2 (Phase 2) | task={task} | seed={seed}")
     print(f"============================================================")
 
     # 1. Extract Features + Domain Labels (Using existing logic)
@@ -45,10 +45,10 @@ def run_phase2_experiment(dataset_path, task, seed, device, epochs=100, k_neighb
     print(f"  Domains ({num_domains}): {list(event_le.classes_)}")
     print(f"  Classes ({len(le.classes_)}): {list(le.classes_)}")
     print(f"  Train samples: {n_train}, Test samples: {len(test_labels)}")
-    print(f"  K-NN Graph: k={k_neighbors}")
 
     # 3. Create DataLoaders
-    # Note: Drop last batch if it's too small for kNN to work properly
+    # Batch size lớn hơn một chút để k-NN Graph phong phú
+    batch_size = 64 
     train_dataset = TensorDataset(
         torch.tensor(train_img, dtype=torch.float32),
         torch.tensor(train_txt, dtype=torch.float32),
@@ -62,14 +62,13 @@ def run_phase2_experiment(dataset_path, task, seed, device, epochs=100, k_neighb
         torch.tensor(test_domain_labels, dtype=torch.long)
     )
 
-    batch_size = 64 # Tăng batch size để k-NN trong local batch có ý nghĩa hơn
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
     # 4. Initialize Model and Trainer
     model = CausalCrisisV2Model(
-        img_dim=train_img.shape[1], 
-        txt_dim=train_txt.shape[1], 
+        img_dim=train_img.shape[1], # Raw CLIP features = 1024 or 512
+        txt_dim=train_txt.shape[1], # Raw CLIP features = 768 or 512
         hidden_dim=256,
         causal_dim=256,
         spurious_dim=256,
@@ -78,22 +77,27 @@ def run_phase2_experiment(dataset_path, task, seed, device, epochs=100, k_neighb
         dropout=0.3
     ).to(device)
 
-    # Dùng optimizer AdamW với Weight Decay (giống CAMO/GEDA)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=5e-4, weight_decay=1e-4)
+    # Dùng optimizer AdamW với Weight Decay
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4) # Higher LR cho GNN
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
 
-    trainer = Phase2Trainer(model, optimizer, device, max_epochs=epochs, k_neighbors=k_neighbors)
+    trainer = Phase2Trainer(
+        model, optimizer, device, 
+        max_epochs=epochs, 
+        k_neighbors=k_neighbors,
+        memory_size=256,
+        m_samples=m_samples
+    )
 
     # 5. Training Loop
     best_test_f1 = 0
     best_test_acc = 0
     patience_counter = 0
-    patience_limit = 20
+    patience_limit = 25
 
-    print("\n  Starting Training Loop Phase 2...")
+    print("\n  Starting Training Loop...")
     for epoch in range(1, epochs + 1):
-        # Tắt MixUp ở Phase 2 để Graph học chính xác cấu trúc thực của node
-        train_loss, train_f1 = trainer.train_epoch(train_loader, epoch, use_mixup=False) 
+        train_loss, train_f1 = trainer.train_epoch(train_loader, epoch, use_mixup=False)
         test_loss, test_f1, test_acc = trainer.evaluate(test_loader)
         
         scheduler.step()
@@ -115,17 +119,18 @@ def run_phase2_experiment(dataset_path, task, seed, device, epochs=100, k_neighb
             break
 
     print(f"\n============================================================")
-    print(f"  Phase 2 (w/ GNN) Best Test F1:    {best_test_f1:.4f}")
-    print(f"  Phase 2 (w/ GNN) Best Test bAcc:  {best_test_acc:.4f}")
+    print(f"  Phase 2 Best Test F1:    {best_test_f1:.4f}")
+    print(f"  Phase 2 Best Test bAcc:  {best_test_acc:.4f}")
     print(f"============================================================")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run Phase 2 of CausalCrisis V2 w/ Graph Neural Network")
+    parser = argparse.ArgumentParser(description="Run Phase 2 of CausalCrisis V2")
     parser.add_argument("--task", type=str, default="task1", help="Task name (task1, task2, task3)")
     parser.add_argument("--data_path", type=str, default="/content/CrisisMMD_v2.0", help="Path to dataset")
     parser.add_argument("--epochs", type=int, default=100, help="Maximum number of epochs")
-    parser.add_argument("--k_neighbors", type=int, default=5, help="Number of neighbors for k-NN Graph")
+    parser.add_argument("--k", type=int, default=3, help="K neighbors for Graph")
+    parser.add_argument("--m", type=int, default=4, help="M samples for Backdoor Adjustment")
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -142,5 +147,6 @@ if __name__ == "__main__":
         seed=seed,
         device=device,
         epochs=args.epochs,
-        k_neighbors=args.k_neighbors
+        k_neighbors=args.k,
+        m_samples=args.m
     )

@@ -143,9 +143,18 @@ class CausalCrisisV2Model(nn.Module):
         # GRL Discriminator
         self.domain_classifier = DomainClassifier(causal_dim, num_domains)
         
-        # Stage 4
+        # Stage 4: Classification (Phase 1 Baseline & GNN Warmup)
         self.classifier = nn.Sequential(
             nn.Linear(causal_dim, causal_dim // 2),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(causal_dim // 2, num_classes)
+        )
+        
+        # Stage 5: Backdoor Adjustment Classifier (Phase 2 Full)
+        # Nhận vào cả Xc (causal) và Xs (spurious) để tính P(Y | Xc, Xs)
+        self.classifier_ba = nn.Sequential(
+            nn.Linear(causal_dim + spurious_dim, causal_dim // 2),
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(causal_dim // 2, num_classes)
@@ -160,7 +169,7 @@ class CausalCrisisV2Model(nn.Module):
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
 
-    def forward(self, img_feat: torch.Tensor, txt_feat: torch.Tensor, adj: torch.Tensor = None):
+    def forward(self, img_feat: torch.Tensor, txt_feat: torch.Tensor, adj: torch.Tensor = None, backdoor_xs: torch.Tensor = None):
         outputs = {}
         
         # Stage 2: Modality Disentangle
@@ -190,7 +199,17 @@ class CausalCrisisV2Model(nn.Module):
             xc = self.gnn(xc, adj)
             outputs["xc_graph"] = xc
         
-        # Stage 4: Classification
-        outputs["logits"] = self.classifier(xc)
+        # Stage 4/5: Classification & Backdoor Adjustment
+        if backdoor_xs is not None:
+            # backdoor_xs shape: (batch_size, M_samples, spurious_dim)
+            M = backdoor_xs.shape[1]
+            xc_expand = xc.unsqueeze(1).expand(-1, M, -1) # (batch, M, causal_dim)
+            combined = torch.cat([xc_expand, backdoor_xs], dim=-1) # (batch, M, causal_dim + spurious_dim)
+            
+            # Tính logits cho mọi combinations và trung bình lại (Expectation over Xs)
+            logits_M = self.classifier_ba(combined) # (batch, M, num_classes)
+            outputs["logits"] = logits_M.mean(dim=1)
+        else:
+            outputs["logits"] = self.classifier(xc)
         
         return outputs
