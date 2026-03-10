@@ -243,3 +243,144 @@ class Phase1Trainer:
         bAcc = accuracy_score(all_targets, all_preds)
         f1 = f1_score(all_targets, all_preds, average='weighted')
         return total_loss / len(dataloader), f1, bAcc
+
+# ==========================================================
+# 5. K-NN GRAPH & PHASE 2 TRAINER
+# ==========================================================
+
+def build_knn_graph(features: torch.Tensor, k: int=5) -> torch.Tensor:
+    """
+    Tạo ma trận kề (Adjacency Matrix) dựa trên Top-K Cosine Similarity của batch hiện tại.
+    """
+    batch_size = features.size(0)
+    # Cosine similarity matrix
+    norm_feat = F.normalize(features, p=2, dim=1)
+    sim_matrix = torch.matmul(norm_feat, norm_feat.T) 
+    
+    # Lấy top-k láng giềng
+    k = min(k, batch_size)
+    _, topk_indices = torch.topk(sim_matrix, k=k, dim=1)
+    
+    # Tạo ma trận kề
+    adj = torch.zeros((batch_size, batch_size), device=features.device)
+    adj.scatter_(1, topk_indices, 1.0)
+    
+    # Chuẩn hóa để dùng cho GCN/GraphSAGE
+    rowsum = adj.sum(1, keepdim=True)
+    adj = adj / torch.clamp(rowsum, min=1e-8)
+    
+    return adj
+
+class Phase2Trainer(Phase1Trainer):
+    """
+    Phase 2 Trainer: Kết tụ sức mạnh của GNN bằng cách kết nối các mẫu trong Batch thành mạng nhện.
+    Kế thừa hoàn toàn cơ chế Loss của Phase 1.
+    """
+    def __init__(self, model, optimizer, device, max_epochs=200, k_neighbors=5):
+        super().__init__(model, optimizer, device, max_epochs)
+        self.k_neighbors = k_neighbors
+
+    def train_epoch(self, dataloader, epoch, use_mixup=True):
+        self.model.train()
+        total_loss = 0
+        total_loss_task = 0
+        
+        all_preds = []
+        all_targets = []
+        
+        grl_lambda = get_grl_lambda(epoch, self.max_epochs, warmup=self.grl_warmup, max_lambda=0.1)
+        
+        for batch in dataloader:
+            if len(batch) == 4:
+                img_feat, txt_feat, labels, domains = [b.to(self.device) for b in batch]
+            else:
+                img_feat, txt_feat, labels = [b.to(self.device) for b in batch]
+                domains = torch.zeros_like(labels)
+            
+            self.optimizer.zero_grad()
+            
+            # Tính nháp Z để xây dựng Đồ thị (Dùng Phase 1 forward ko có adj)
+            with torch.no_grad():
+                out_draft = self.model(img_feat, txt_feat)
+                xc_draft = out_draft["xc"]
+                
+            # Tạo ma trận kề dựa trên không gian Causal thu được
+            adj = build_knn_graph(xc_draft, self.k_neighbors)
+            
+            # Chạy thật Phase 2 (Cắm adj vào model)
+            out = self.model(img_feat, txt_feat, adj=adj)
+            z_unified, xc, xs = out["z_unified"], out["xc"], out["xs"]
+            
+            # [A] Orthogonal Loss
+            loss_orth = orthogonal_loss(out["z_img_g"], out["z_img_s"]) + \
+                        orthogonal_loss(out["z_txt_g"], out["z_txt_s"]) + \
+                        orthogonal_loss(xc, xs)
+            
+            # [B] SupCon Loss
+            try:
+                loss_supcon = self.criterion_supcon(z_unified, labels)
+            except:
+                loss_supcon = torch.tensor(0.0).to(self.device)
+            
+            # [C] Mixup (Phase 2 ta có thể tắt mixup đi để GNN ổn định hơn)
+            loss_task = self.criterion_cls(out["logits"], labels)
+            preds = torch.argmax(out["logits"], dim=1)
+                
+            # [D] GRL Domain Loss
+            xc_reversed = GradientReversalFunction.apply(out["xc_graph"], grl_lambda)
+            domain_logits_adv = self.model.domain_classifier(xc_reversed)
+            loss_disc = self.criterion_domain(domain_logits_adv, domains)
+            
+            loss = (self.alpha_task * loss_task) + \
+                   (self.alpha_supcon * loss_supcon) + \
+                   (self.alpha_orth * loss_orth) + \
+                   (0.01 * loss_disc)
+                   
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=2.0)
+            self.optimizer.step()
+            
+            total_loss += loss.item()
+            total_loss_task += loss_task.item()
+            
+            all_preds.extend(preds.cpu().numpy())
+            all_targets.extend(labels.cpu().numpy())
+            
+        epoch_f1 = f1_score(all_targets, all_preds, average='weighted')
+        
+        if epoch % 5 == 0 or epoch == 1:
+            n_b = len(dataloader)
+            print(f"      [Phase 2 Loss] Total: {total_loss/n_b:.3f} | Task: {total_loss_task/n_b:.3f}")
+            
+        return total_loss / len(dataloader), epoch_f1
+
+    @torch.no_grad()
+    def evaluate(self, dataloader):
+        self.model.eval()
+        total_loss = 0
+        all_preds = []
+        all_targets = []
+        
+        for batch in dataloader:
+            if len(batch) == 4:
+                img_feat, txt_feat, labels, domains = [b.to(self.device) for b in batch]
+            else:
+                img_feat, txt_feat, labels = [b.to(self.device) for b in batch]
+                
+            # Draft feature để xây đồ thị
+            out_draft = self.model(img_feat, txt_feat)
+            adj = build_knn_graph(out_draft["xc"], self.k_neighbors)
+            
+            # Forward tính điểm
+            out = self.model(img_feat, txt_feat, adj=adj)
+            loss = self.criterion_cls(out["logits"], labels)
+            
+            total_loss += loss.item()
+            preds = torch.argmax(out["logits"], dim=1)
+            
+            all_preds.extend(preds.cpu().numpy())
+            all_targets.extend(labels.cpu().numpy())
+            
+        bAcc = accuracy_score(all_targets, all_preds)
+        f1 = f1_score(all_targets, all_preds, average='weighted')
+        return total_loss / len(dataloader), f1, bAcc

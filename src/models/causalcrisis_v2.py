@@ -2,6 +2,45 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+class GraphSAGELayer(nn.Module):
+    """
+    True GraphSAGE aggregator logic:
+    h_N = Aggregate(adj, x)
+    h_out = ReLU(W * Concat(x, h_N))
+    """
+    def __init__(self, in_dim: int, out_dim: int):
+        super().__init__()
+        # GraphSAGE concatenates the node's own feature with the aggregated neighborhood feature
+        self.proj = nn.Linear(in_dim * 2, out_dim)
+        
+    def forward(self, x: torch.Tensor, adj: torch.Tensor) -> torch.Tensor:
+        if adj.is_sparse:
+            h_N = torch.sparse.mm(adj, x)
+        else:
+            h_N = torch.matmul(adj, x)
+        
+        # Concat original features with aggregated neighbor features
+        h_cat = torch.cat([x, h_N], dim=-1)
+        return F.relu(self.proj(h_cat))
+
+class CausalGNNModule(nn.Module):
+    """
+    Stage 3B: Graph Neural Network
+    Nối các Causal Vector kết tinh bằng đồ thị k-NN và message passing.
+    """
+    def __init__(self, in_dim: int, hidden_dim: int, dropout=0.3):
+        super().__init__()
+        self.conv1 = GraphSAGELayer(in_dim, hidden_dim)
+        self.conv2 = GraphSAGELayer(hidden_dim, in_dim)
+        self.dropout = nn.Dropout(dropout)
+        self.norm = nn.LayerNorm(in_dim)
+        
+    def forward(self, x: torch.Tensor, adj: torch.Tensor):
+        h = self.conv1(x, adj)
+        h = self.dropout(h)
+        h = self.conv2(h, adj)
+        return self.norm(x + h) # Residual connection
+
 class ModalityProjector(nn.Module):
     """
     Stage 2: Modality Disentanglement
@@ -76,8 +115,8 @@ class DomainClassifier(nn.Module):
 
 class CausalCrisisV2Model(nn.Module):
     """
-    CausalCrisis v2 - Phase 1 (CAMO-like Baseline)
-    Bao gồm: Modality Disentanglement -> Causal Disentanglement -> Classification
+    CausalCrisis v2 - Phase 1 & 2
+    Bao gồm: Modality Disentanglement -> Causal Disentanglement -> [GNN] -> Classification
     """
     def __init__(self, 
                  img_dim: int = 256, # Nếu có PCA thì là 256, nếu RAW CLIP thì 1024
@@ -97,6 +136,9 @@ class CausalCrisisV2Model(nn.Module):
         # Stage 3A
         unified_dim = hidden_dim * 2
         self.causal_disentangle = CausalDisentanglerV2(unified_dim, causal_dim, spurious_dim, dropout)
+        
+        # Stage 3B: GNN Module Phase 2
+        self.gnn = CausalGNNModule(causal_dim, causal_dim, dropout)
         
         # GRL Discriminator
         self.domain_classifier = DomainClassifier(causal_dim, num_domains)
@@ -118,7 +160,7 @@ class CausalCrisisV2Model(nn.Module):
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
 
-    def forward(self, img_feat: torch.Tensor, txt_feat: torch.Tensor):
+    def forward(self, img_feat: torch.Tensor, txt_feat: torch.Tensor, adj: torch.Tensor = None):
         outputs = {}
         
         # Stage 2: Modality Disentangle
@@ -142,6 +184,11 @@ class CausalCrisisV2Model(nn.Module):
         
         # Domain logits cho Loss Adversarial (L_disc)
         outputs["domain_logits"] = self.domain_classifier(xc)
+        
+        # Stage 3B: Causal Graph Neural Network (Phase 2)
+        if adj is not None:
+            xc = self.gnn(xc, adj)
+            outputs["xc_graph"] = xc
         
         # Stage 4: Classification
         outputs["logits"] = self.classifier(xc)
