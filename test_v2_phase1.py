@@ -76,7 +76,8 @@ def run_phase1_experiment(dataset_path, task, seed, device, epochs=100):
     ).to(device)
 
     # Dùng optimizer AdamW với Weight Decay (giống CAMO/GEDA)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=5e-4, weight_decay=1e-4) # Slightly higher base LR
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
 
     trainer = Phase1Trainer(model, optimizer, device, max_epochs=epochs)
 
@@ -90,6 +91,8 @@ def run_phase1_experiment(dataset_path, task, seed, device, epochs=100):
     for epoch in range(1, epochs + 1):
         train_loss, train_f1 = trainer.train_epoch(train_loader, epoch, use_mixup=True)
         test_loss, test_f1, test_acc = trainer.evaluate(test_loader)
+        
+        scheduler.step() # Cập nhật Learning Rate
         
         if test_f1 > best_test_f1:
             best_test_f1 = test_f1

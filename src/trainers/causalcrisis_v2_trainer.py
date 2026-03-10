@@ -130,89 +130,92 @@ class Phase1Trainer:
         self.criterion_domain = nn.CrossEntropyLoss()
         self.criterion_supcon = SupConLoss(temperature=0.7)
         
-        # Hyperparameters Phase 1 (Theo thiết kế CAMO Architecture)
+        # Hyperparameters Phase 1 (Tuned to prevent loss dominance)
         self.alpha_task = 1.0
-        self.alpha_supcon = 3.0
-        self.alpha_orth = 1.0
-        # Phase 1: chưa có graph module -> Không có L_graph
+        self.alpha_supcon = 0.5   # Giảm từ 3.0 xuống 0.5
+        self.alpha_orth = 0.1     # Giảm từ 1.0 xuống 0.1
+        self.grl_warmup = 5       # Rút ngắn Warmup để GRL sớm có tác dụng
 
     def train_epoch(self, dataloader, epoch, use_mixup=True):
         self.model.train()
         total_loss = 0
+        total_loss_task = 0
+        total_loss_sup = 0
+        total_loss_orth = 0
+        total_loss_disc = 0
+        
         all_preds = []
         all_targets = []
         
-        # Ramp-up Lambda cho GRL (Gradient Reversal Layer)
-        grl_lambda = get_grl_lambda(epoch, self.max_epochs, warmup=20)
+        # Ramp-up Lambda cho GRL
+        grl_lambda = get_grl_lambda(epoch, self.max_epochs, warmup=self.grl_warmup, max_lambda=1.0)
         
         for batch in dataloader:
             if len(batch) == 4:
                 img_feat, txt_feat, labels, domains = [b.to(self.device) for b in batch]
             else:
                 img_feat, txt_feat, labels = [b.to(self.device) for b in batch]
-                domains = torch.zeros_like(labels) # Dự phòng nếu dataset LODO không có domain array
+                domains = torch.zeros_like(labels)
             
             self.optimizer.zero_grad()
-            
-            # --- 1. Forward Pass cơ bản ---
             out = self.model(img_feat, txt_feat)
-            z_unified = out["z_unified"]
-            xc = out["xc"]
-            xs = out["xs"]
+            z_unified, xc, xs = out["z_unified"], out["xc"], out["xs"]
             
-            # --- 2. Tính toán Loss Component ---
+            # [A] Orthogonal Loss
+            loss_orth = orthogonal_loss(out["z_img_g"], out["z_img_s"]) + \
+                        orthogonal_loss(out["z_txt_g"], out["z_txt_s"]) + \
+                        orthogonal_loss(xc, xs)
             
-            # [A] Orthogonal Loss (Độc lập/Tách biệt ngữ nghĩa)
-            loss_orth_mod = orthogonal_loss(out["z_img_g"], out["z_img_s"]) + \
-                            orthogonal_loss(out["z_txt_g"], out["z_txt_s"])
-            loss_orth_causal = orthogonal_loss(xc, xs)
-            loss_orth = loss_orth_mod + loss_orth_causal
+            # [B] SupCon Loss (Tương quan kéo gần cùng nhãn)
+            # Nếu batch size quá nhỏ hoặc chỉ có 1 class trong batch, SupCon dễ gây NaN/Loss to
+            try:
+                loss_supcon = self.criterion_supcon(z_unified, labels)
+            except:
+                loss_supcon = torch.tensor(0.0).to(self.device)
             
-            # [B] SupCon Loss (Tương quan kéo gần cùng nhãn trong Unified Space)
-            loss_supcon = self.criterion_supcon(z_unified, labels)
-            
-            # [C] Mixup augmentation cho Task Loss (CrossEntropy)
-            if use_mixup and epoch > 30: # Chỉ mixup khi model đã định hình tương đối
-                mixed_z, y_a, y_b, lam = mixup_data(z_unified, labels, alpha=1.0, device=self.device)
-                
-                # Push mixed_z (từ unified space) vào lại Disentangler và Classifier
-                # Đảm bảo causal pipeline vẫn đúng
+            # [C] Mixup
+            if use_mixup and epoch >= 5: # Kích hoạt sớm từ Epoch 5 thay vì 30
+                mixed_z, y_a, y_b, lam = mixup_data(z_unified, labels, alpha=0.5, device=self.device)
                 mixed_xc, _ = self.model.causal_disentangle(mixed_z)
                 mixed_logits = self.model.classifier(mixed_xc)
                 
                 loss_task = mixup_criterion(self.criterion_cls, mixed_logits, y_a, y_b, lam)
-                preds = torch.argmax(out["logits"], dim=1) # Dùng logit gốc cho training accuracy tracking
+                preds = torch.argmax(out["logits"], dim=1) 
             else:
                 loss_task = self.criterion_cls(out["logits"], labels)
                 preds = torch.argmax(out["logits"], dim=1)
                 
-            # [D] Causal/Domain Adversarial Loss (GRL)
-            # Dùng Gradient Reversal Function chặn chiều xuôi, đảo chiều ngược
+            # [D] GRL Domain Loss
             xc_reversed = GradientReversalFunction.apply(xc, grl_lambda)
             domain_logits_adv = self.model.domain_classifier(xc_reversed)
-            
             loss_disc = self.criterion_domain(domain_logits_adv, domains)
             
-            # --- 3. Tổng hợp Total Loss theo Architecture V2 ---
-            # Do GRL đã đảo dấu backprop, ta chỉ cần cộng loss_disc thay vì trừ ra.
             loss = (self.alpha_task * loss_task) + \
                    (self.alpha_supcon * loss_supcon) + \
                    (self.alpha_orth * loss_orth) + \
                    loss_disc  
                    
             loss.backward()
-            
-            # Thêm Gradient Clipping bảo vệ khỏi exploding gradient do GRL + Contrastive
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=5.0)
-            
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=2.0)
             self.optimizer.step()
             
             total_loss += loss.item()
+            total_loss_task += loss_task.item()
+            if isinstance(loss_supcon, torch.Tensor):
+                total_loss_sup += loss_supcon.item()
+            total_loss_orth += loss_orth.item()
+            total_loss_disc += loss_disc.item()
             
             all_preds.extend(preds.cpu().numpy())
             all_targets.extend(labels.cpu().numpy())
             
         epoch_f1 = f1_score(all_targets, all_preds, average='weighted')
+        
+        # Chỉ in breakdown loss ở batch cuối/tổng hợp để dễ xem
+        if epoch % 5 == 0 or epoch == 1:
+            n_b = len(dataloader)
+            print(f"      [Loss Breakdown] Task: {total_loss_task/n_b:.3f} | SupCon: {total_loss_sup/n_b:.3f} | Orth: {total_loss_orth/n_b:.3f} | GRL: {total_loss_disc/n_b:.3f}")
+            
         return total_loss / len(dataloader), epoch_f1
 
     @torch.no_grad()
