@@ -94,8 +94,14 @@ class CausalCrisisInferenceEngine:
             adj = torch.tensor([[1.0]], dtype=torch.float32, device=self.device)
             out = self.model(img_feat, txt_feat, adj=adj)
             
+            # [CRITICAL FIX]: The classifier was trained on "xc_graph + xs" during Phase 2 Backdoor Adjustment.
+            # If we only pass "xc_graph", the classifier receives inputs with entirely wrong magnitude and bias,
+            # resulting in wild 99.9% garbage predictions. 
+            # We must recombine the GNN output with the current instance's Spurious feature (xs).
+            combined_features = out["xc_graph"] + out["xs"]
+            
             # Forward classification
-            logits = out["logits_gnn"]
+            logits = self.model.classifier(combined_features)
             probs = torch.softmax(logits, dim=-1)
             
             # Get Top 3 Predictions
