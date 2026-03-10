@@ -88,10 +88,14 @@ class CausalCrisisInferenceEngine:
         img_feat, txt_feat = self._get_clip_embeddings(image_path, text)
         
         with torch.no_grad():
-            out = self.model(img_feat, txt_feat)
+            # For a single image inference, the graph is just the node itself.
+            # We MUST provide this self-loop adjacency matrix so it passes through the GATConv layer.
+            # (Our custom GraphSAGE expects a [N, N] adjacency matrix, so for 1 node it's [1, 1])
+            adj = torch.tensor([[1.0]], dtype=torch.float32, device=self.device)
+            out = self.model(img_feat, txt_feat, adj=adj)
             
-            # Forward classification. Bỏ qua GNN, lấy logits gốc
-            logits = out["logits"]
+            # Forward classification
+            logits = out["logits_gnn"]
             probs = torch.softmax(logits, dim=-1)
             
             # Get Top 3 Predictions
