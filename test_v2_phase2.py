@@ -104,7 +104,8 @@ def run_phase2_experiment(dataset_path, task, seed, device, epochs=100, k_neighb
     best_test_f1 = 0
     best_test_acc = 0
     patience_counter = 0
-    patience_limit = 10
+    patience_limit = 15
+    trainer.config_mode = "C"
 
     print("\n  Starting Training Loop...")
     for epoch in range(1, epochs + 1):
