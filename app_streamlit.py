@@ -38,28 +38,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# Load Model Caching
-# ---------------------------------------------------------
-@st.cache_resource
-def load_engine():
-    """Load model engine 1 lần duy nhất, chia sẻ qua session"""
-    engine = CausalCrisisInferenceEngine()
-    # Nếu có file weights, có thể hardcode đường dẫn vào đây:
-    # engine.load_weights("path_to_weights.pth")
-    return engine
-
-# Header
-st.title("🌪️ CrisisSummarization: Causal GNN Framework")
-st.markdown("""
-Welcome to the **Multimodal Disaster Classification** interactive demo. 
-This system utilizes a **Causal Graph Neural Network (GNN)**, fortified with **Spectral-Normalized Gradient Reversal**, to analyze social media posts (Text + Image) during crises and filter out spurious background noise (e.g., weather or irrelevant objects) to predict the genuine humanitarian category.
-""")
-
-# Load mô hình dưới nền tảng (Hiển thị spinner 1 lần)
-with st.spinner("Loading CLIP Processor and Causal GNN Engine... (First time only)"):
-    engine = load_engine()
-
-# ---------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------
 with st.sidebar:
@@ -72,9 +50,39 @@ with st.sidebar:
     3. Graph Message Passing
     """)
     st.markdown("---")
+    
+    # Cho phép người dùng nhập đường dẫn tới file weights
+    weights_path = st.text_input(
+        "📂 Path to Model Weights (.pth)", 
+        value="", 
+        help="Paste the path to your best_causal_v2.pth (e.g., /content/.../best_causalcrisis_v2_seed42.pth). Leave empty for random weights."
+    )
+    
     st.markdown("### Supported Classes:")
     for c in CLASSES_TASK2:
         st.caption(f"- {c.replace('_', ' ').title()}")
+
+# ---------------------------------------------------------
+# Load Model Caching
+# ---------------------------------------------------------
+@st.cache_resource
+def load_engine(weights=""):
+    """Load model engine 1 lần duy nhất, chia sẻ qua session"""
+    engine = CausalCrisisInferenceEngine()
+    if weights and os.path.exists(weights):
+        engine.load_weights(weights)
+    return engine
+
+# Header
+st.title("🌪️ CrisisSummarization: Causal GNN Framework")
+st.markdown("""
+Welcome to the **Multimodal Disaster Classification** interactive demo. 
+This system utilizes a **Causal Graph Neural Network (GNN)**, fortified with **Spectral-Normalized Gradient Reversal**, to analyze social media posts (Text + Image) during crises and filter out spurious background noise (e.g., weather or irrelevant objects) to predict the genuine humanitarian category.
+""")
+
+# Load mô hình dưới nền tảng (Hiển thị spinner 1 lần)
+with st.spinner("Loading CLIP Processor and Causal GNN Engine... (First time only)"):
+    engine = load_engine(weights_path)
 
 # ---------------------------------------------------------
 # Main UI Loop
