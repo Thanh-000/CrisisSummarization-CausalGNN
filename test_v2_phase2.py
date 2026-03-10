@@ -74,7 +74,7 @@ def run_phase2_experiment(dataset_path, task, seed, device, epochs=100, k_neighb
         spurious_dim=256,
         num_domains=num_domains,
         num_classes=len(le.classes_),
-        dropout=0.3
+        dropout=0.5 # Tăng dropout bạo lực để chống overfitting
     ).to(device)
 
     # Trọng số L2 riêng biệt: GNN cần weight_decay mạnh hơn để chống overfitting (0.5e-3)
@@ -88,7 +88,7 @@ def run_phase2_experiment(dataset_path, task, seed, device, epochs=100, k_neighb
             
     optimizer = torch.optim.AdamW([
         {'params': phase1_params, 'weight_decay': 1e-5},
-        {'params': gnn_params, 'weight_decay': 5e-4}
+        {'params': gnn_params, 'weight_decay': 1e-3} # Tăng weight decay GNN lên 1e-3
     ], lr=5e-4)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
 
@@ -135,6 +135,8 @@ def run_phase2_experiment(dataset_path, task, seed, device, epochs=100, k_neighb
     print(f"  Phase 2 Best Test F1:    {best_test_f1:.4f}")
     print(f"  Phase 2 Best Test bAcc:  {best_test_acc:.4f}")
     print(f"============================================================")
+    
+    return best_test_f1, best_test_acc
 
 
 if __name__ == "__main__":
@@ -149,17 +151,32 @@ if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
 
-    # Set seed
-    seed = 42
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-
-    run_phase2_experiment(
-        dataset_path=args.data_path,
-        task=args.task,
-        seed=seed,
-        device=device,
-        epochs=args.epochs,
-        k_neighbors=args.k,
-        m_samples=args.m
-    )
+    # Run multi-seed
+    seeds = [42, 100, 2026]
+    results = []
+    
+    for seed in seeds:
+        torch.manual_seed(seed)
+        np.random.seed(seed)
+        
+        best_f1, best_acc = run_phase2_experiment(
+            dataset_path=args.data_path,
+            task=args.task,
+            seed=seed,
+            device=device,
+            epochs=args.epochs,
+            k_neighbors=args.k,
+            m_samples=args.m
+        )
+        results.append((seed, best_f1, best_acc))
+        
+    print(f"\n============================================================")
+    print(f"  FINAL MULTI-SEED RESULTS")
+    print(f"============================================================")
+    avg_f1 = np.mean([r[1] for r in results])
+    avg_acc = np.mean([r[2] for r in results])
+    for seed, f1, acc in results:
+        print(f"    Seed {seed:4d} | F1: {f1:.4f} | bAcc: {acc:.4f}")
+    print(f"  ----------------------------------------------------------")
+    print(f"    AVERAGE   | F1: {avg_f1:.4f} | bAcc: {avg_acc:.4f}")
+    print(f"============================================================")
