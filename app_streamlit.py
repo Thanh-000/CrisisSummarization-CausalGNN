@@ -75,36 +75,38 @@ def load_engine(weights=""):
         engine.load_weights(weights)
         return engine
 
-    # TỰ ĐỘNG TÌM WEIGHTS TỐT NHẤT
-    search_dirs = [
-        "checkpoints", 
-        "models", 
-        ".", 
-        "/content/drive/MyDrive/CrisisSummarization_Checkpoints", # Colab Drive
-        "../checkpoints"
-    ]
+    # TỰ ĐỘNG TÌM WEIGHTS TỐT NHẤT TRONG /content (COLAB) HOẶC THƯ MỤC HIỆN TẠI
+    search_root = "/content" if os.path.exists("/content") else "."
     
     best_weight_path = None
-    for d in search_dirs:
-        if os.path.exists(d):
-            # Lọc các file .pth, ưu tiên file có chữ 'best' và 'causal'
-            files = [f for f in os.listdir(d) if f.endswith('.pth')]
-            best_files = [f for f in files if "best" in f.lower() or "causal" in f.lower()]
+    all_pth_files = []
+    
+    # Tìm tất cả các file .pth trong search_root (giới hạn độ sâu để tránh tìm quá lâu)
+    for root, dirs, files in os.walk(search_root):
+        # Bỏ qua các thư mục bộ đệm hoặc ẩn
+        if '.git' in root or '__pycache__' in root or '.cache' in root:
+            continue
             
-            if best_files:
-                # Ưu tiên lấy file đầu tiên có chữ "best"
-                best_weight_path = os.path.join(d, best_files[0])
-                break
-            elif files:
-                # Nếu không có chữ 'best', lấy đại file .pth đầu tiên
-                best_weight_path = os.path.join(d, files[0])
-                break
+        for file in files:
+            if file.endswith('.pth'):
+                all_pth_files.append(os.path.join(root, file))
+                
+    if all_pth_files:
+        # Ưu tiên các file có chữ 'best' và 'causal'
+        best_files = [f for f in all_pth_files if "best" in f.lower() or "causal" in f.lower()]
+        
+        if best_files:
+            # Ưu tiên lấy file đầu tiên có chữ "best"
+            best_weight_path = best_files[0]
+        else:
+            # Nếu không có chữ 'best', lấy đại file .pth đầu tiên
+            best_weight_path = all_pth_files[0]
                 
     if best_weight_path:
         st.sidebar.success(f"✅ Auto-loaded weights from:\n`{best_weight_path}`")
         engine.load_weights(best_weight_path)
     else:
-        st.sidebar.warning("⚠️ No weights found automatically. Model is running with RANDOM initial weights! Please train or upload a .pth file.")
+        st.sidebar.warning(f"⚠️ No .pth weights found in `{search_root}`. Model is running with RANDOM initial weights! Please train or upload a Causal GNN checkpoint.")
         
     return engine
 
