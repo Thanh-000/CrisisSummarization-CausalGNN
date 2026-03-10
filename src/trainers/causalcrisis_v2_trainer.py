@@ -147,8 +147,8 @@ class Phase1Trainer:
         all_preds = []
         all_targets = []
         
-        # Ramp-up Lambda cho GRL: max_lambda=0.3
-        grl_lambda = get_grl_lambda(epoch, self.max_epochs, warmup=self.grl_warmup, max_lambda=0.3)
+        # Ramp-up Lambda cho GRL: max_lambda=0.2
+        grl_lambda = get_grl_lambda(epoch, self.max_epochs, warmup=self.grl_warmup, max_lambda=0.2)
         
         for batch in dataloader:
             if len(batch) == 4:
@@ -384,7 +384,7 @@ class Phase2Trainer(Phase1Trainer):
             import math
             alpha_gnn = 0.5 * (1.0 - math.cos(math.pi * min(epoch, 15) / 15.0)) / 2.0
             
-        grl_lambda = get_grl_lambda(epoch, self.max_epochs, warmup=self.grl_warmup, max_lambda=0.3)
+        grl_lambda = get_grl_lambda(epoch, self.max_epochs, warmup=self.grl_warmup, max_lambda=0.2)
         
         for batch in dataloader:
             if len(batch) == 4:
