@@ -40,6 +40,7 @@ Tăng cường mức độ "bạo lực" (Aggressive) của quá trình chống 
 
 ## 3. Kết Quả Thực Nghiệm (Final Results)
 
+### 3.1. Task 2: Phân loại Hạng mục cứu trợ (8 Classes)
 Cấu hình mới nhất được test qua $3$ Seeds Ngẫu nhiên (Multi-seed: `42`, `100`, `2026`):
 
 ```text
@@ -54,4 +55,21 @@ Cấu hình mới nhất được test qua $3$ Seeds Ngẫu nhiên (Multi-seed: 
 ============================================================
 ```
 
-**Kết Luận:** Sự kết hợp hoàn chỉnh của **Soft-Attention GNN** và **Vector-Addition Backdoor Adjustment** ổn định ở mức `~0.623` cho chuẩn `bAcc`, tự tin vượt qua ranh giới `0.617` do Baseline MLP Phase 1 đặt ra, đánh dấu thành công chói lọi của phương pháp Causal Machine Learning trên dữ liệu Disaster Twitter.
+**Kết Luận:** Sự kết hợp hoàn chỉnh của **Soft-Attention GNN** và **Vector-Addition Backdoor Adjustment** ổn định ở mức `~0.623` cho chuẩn `bAcc`, tự tin vượt qua ranh giới `0.617` do Baseline MLP Phase 1 đặt ra.
+
+### 3.2. Task 1: Thông tin Nhân đạo (2 Classes)
+Đánh giá độ ổn định trên bài toán nhị phân (Informative vs. Non-informative):
+
+```text
+============================================================
+  FINAL MULTI-SEED RESULTS
+============================================================
+    Seed   42 | F1: 0.8015 | bAcc: 0.8015
+    Seed  100 | F1: 0.7948 | bAcc: 0.7939
+    Seed 2026 | F1: 0.7878 | bAcc: 0.7899
+  ----------------------------------------------------------
+    AVERAGE   | F1: 0.7947 | bAcc: 0.7951
+============================================================
+```
+
+**Kết Luận:** Mô hình GAT + BA duy trì độ ổn định cực cao trên mức ~0.795 cho cả F1 và bAcc, khẳng định kiến trúc Phase 2 không chỉ overfit trên định dạng dữ liệu phức tạp của Task 2 mà còn tổng quát tốt trên bài toán phân loại đơn giản.
