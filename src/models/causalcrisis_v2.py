@@ -208,12 +208,19 @@ class CausalCrisisV2Model(nn.Module):
             xc_expand = xc.unsqueeze(1).expand(-1, M, -1) # (batch, M, causal_dim)
             combined = torch.cat([xc_expand, backdoor_xs], dim=-1) # (batch, M, causal_dim + spurious_dim)
             logits_M = self.classifier_ba(combined) # (batch, M, num_classes)
-            outputs["logits_ba"] = logits_M.mean(dim=1)
+            
+            # P(Y|do(X)) = E_{Xs}[ P(Y|Xc,Xs) ]
+            probs_M = torch.softmax(logits_M, dim=-1)
+            expected_probs = probs_M.mean(dim=1)
+            # Log probability để kết hợp với CrossEntropy / argmax liền mạch
+            outputs["logits_ba"] = torch.log(expected_probs + 1e-8)
         else:
             # Training: Use current batch's Xs to learn P(Y | Xc, Xs)
-            # DETACH xs to prevent task loss from leaking into Spurious feature extraction!
+            # Detach cả xc và xs để classifier_ba học thuần phân phối xác suất 
+            # mà KHÔNG làm cho xc bị "lười" đi (lazy causal feature).
             xs_detached = xs.detach()
-            combined = torch.cat([xc, xs_detached], dim=-1) # (batch, causal_dim + spurious_dim)
+            xc_detached = xc.detach()
+            combined = torch.cat([xc_detached, xs_detached], dim=-1) # (batch, causal_dim + spurious_dim)
             outputs["logits_ba"] = self.classifier_ba(combined)
         
         # Stage 4: Phase 1 Standard Classification (P(Y | Xc))

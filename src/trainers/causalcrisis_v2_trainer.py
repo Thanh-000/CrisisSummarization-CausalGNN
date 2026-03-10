@@ -336,6 +336,7 @@ class Phase2Trainer(Phase1Trainer):
 
     def train_epoch(self, dataloader, epoch, use_mixup=False):
         self.model.train()
+        self.current_epoch = epoch
         total_loss = 0
         total_loss_task_p1 = 0
         total_loss_ba = 0
@@ -436,6 +437,9 @@ class Phase2Trainer(Phase1Trainer):
         all_preds = []
         all_targets = []
         
+        epoch = getattr(self, 'current_epoch', 15)
+        enable_gnn = epoch >= 5
+        
         for batch in dataloader:
             if len(batch) == 4:
                 img_feat, txt_feat, labels, domains = [b.to(self.device) for b in batch]
@@ -444,8 +448,10 @@ class Phase2Trainer(Phase1Trainer):
                 
             out_draft = self.model(img_feat, txt_feat)
             
-            # Khác với P1, test Phase 2 dùng GNN mà KHÔNG DropEdge
-            adj = build_knn_graph(out_draft["xc"], self.k_neighbors, drop_edge_p=0.0, training=False)
+            # Nếu chưa enable GNN thì bỏ qua adj tạo graph
+            adj = None
+            if enable_gnn:
+                adj = build_knn_graph(out_draft["xc"], self.k_neighbors, drop_edge_p=0.0, training=False)
             
             # CHỊCH BACKDOOR ADJUSTMENT Ở ĐÂY !!!!
             # Thay đổi distribution của Xs bằng cách lấy ngẫu nhiên từ MemoryBank thay vì Xs của data thực
