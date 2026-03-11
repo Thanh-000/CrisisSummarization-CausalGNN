@@ -11,6 +11,9 @@
 \usepackage{enumitem}
 \usepackage{float}
 \usepackage{caption}
+\usepackage{multirow}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, backgrounds}
 
 \title{\textbf{Kiến trúc Causal GNN v2 cho Phân loại Thảm họa Đa phương thức: Phân tách Đặc trưng và Điều chỉnh Cửa sau}}
 \author{Nhóm Nghiên cứu Dự án CrisisSummarization}
@@ -26,13 +29,62 @@ Việc phân loại dữ liệu thảm họa từ mạng xã hội đóng vai tr
 
 \section{Giới thiệu (Introduction)}
 
-Dữ liệu thảm họa trên mạng xã hội thường mang tính đa phương thức, kết hợp văn bản và hình ảnh. Mặc dù các mô hình nền tảng như CLIP cho khả năng trích xuất đặc trưng tốt, chúng dễ dàng "học vẹt" bối cảnh thay vì học nguyên nhân thực sự (causal factors) của thảm họa. Ví dụ, sự hiện diện của áo phao có thể gắn với lũ lụt, nhưng cũng có thể xuất hiện trong bối cảnh du lịch. 
+Dữ liệu thảm họa trên mạng xã hội thường mang tính đa phương thức, kết hợp văn bản và hình ảnh. Mặc dù các mô hình nền tảng như CLIP cho khả năng trích xuất đặc trưng tốt, chúng dễ dàng "học vẹt" bối cảnh thay vì học nguyên nhân thực sự (causal factors) của thảm họa. Ví dụ, sự hiện diện của áo phao có thể gắn với lũ lụt, nhưng cũng có thể xuất hiện trong bối cảnh du lịch bình thường.
 
-Để giải quyết vấn đề rò rỉ bối cảnh này, kiến trúc Causal GNN v2 đề xuất một cơ chế can thiệp nhân quả (Causal Intervention) thông qua lý thuyết đồ thị. Thay vì dựa vào phân phối xác suất quan sát được $\mathbb{P}(Y|X)$, chúng ta định hình dữ liệu thông qua toán tử \textit{do-calculus} của Judea Pearl: $\mathbb{P}(Y|do(X))$. Báo cáo này trình bày phương pháp luận, kiến trúc luồng dữ liệu, thao tác đào tạo hai giai đoạn, và báo cáo kết quả đánh giá cuối cùng.
+Các phương pháp phân loại SOTA hiện tại (như CAMO, SimMMDG, CIRL) mặc dù đã nỗ lực giải quyết phân phối ngoài miền (Out-of-Distribution) nhưng vẫn gặp hạn chế. Phần lớn chỉ dừng lại ở việc tách biệt đặc trưng cơ bản (Modality-level) hoặc chỉ giải quyết nhân quả trên dữ liệu đơn phương thức (Single-modal Graph).
 
-\section{Phương pháp luận và Kiến trúc Hệ thống}
+Để giải quyết triệt để rào cản này, kiến trúc Causal GNN v2 đề xuất một cơ chế can thiệp nhân quả (Causal Intervention) thông qua lý thuyết đồ thị và tách bạch 3 cấp độ (3-level disentanglement). Thay vì dự đoán dựa vào mô hình nhân quả quan sát $\mathbb{P}(Y|X)$, chúng ta định hình lại dữ liệu qua toán tử \textit{do-calculus} của Judea Pearl: $\mathbb{P}(Y|do(X))$. Báo cáo này đi sâu vào phân tích kiến trúc, pipeline xử lý, định thức toán học và đánh giá toàn diện.
+\section{Kiến trúc Hệ thống (System Architecture)}
 
-Kiến trúc giải quyết bài toán đa phương thức thông qua 4 module trọng tâm, đảm nhiệm việc trích xuất và thanh lọc tri thức. 
+Kiến trúc giải quyết bài toán đa phương thức thông qua 4 module trọng tâm, tạo thành một \textbf{Pipeline khép kín} từ dữ liệu thô đến dự đoán miễn nhiễm nhiễu.
+
+\begin{figure}[H]
+    \centering
+    \begin{tikzpicture}[
+        node distance=1.5cm and 2cm,
+        box/.style={rectangle, draw=blue!70, fill=blue!5, thick, rounded corners, align=center, minimum height=1cm},
+        causal/.style={rectangle, draw=green!70, fill=green!5, thick, rounded corners, align=center, minimum height=1cm},
+        spurious/.style={rectangle, draw=red!70, fill=red!5, thick, rounded corners, align=center, minimum height=1cm},
+        graph/.style={rectangle, draw=purple!70, fill=purple!5, thick, rounded corners, align=center, minimum height=1cm},
+        arrow/.style={-{Stealth[scale=1.2]}, thick}
+    ]
+
+    % Nodes
+    \node[box] (input) {Input (Img + Txt)};
+    \node[box, right=of input] (fusion) {CLIP Extractor \\ \& Late Fusion ($f_{fused}$)};
+    
+    \node[causal, right=of fusion, yshift=1.5cm] (xc) {Causal Branch \\ $X_c$ (MLP)};
+    \node[spurious, right=of fusion, yshift=-1.5cm] (xs) {Spurious Branch \\ $X_s$ (MLP)};
+    
+    \node[graph, right=of xc] (gcn) {k-NN Graph \\ GCN Layer ($X_c^{graph}$)};
+    \node[spurious, right=of xs] (bank) {Memory Bank \\ (Size: 2000)};
+    
+    \node[box, right=of gcn, yshift=-1.5cm, fill=orange!10, draw=orange!70] (ba) {Backdoor Adjustment \\ $\mathbb{E}_{X_s} [P(Y | do(X_c))]$};
+    
+    \node[box, right=of ba] (output) {Robust Prediction \\ (Final Logits)};
+
+    % Arrows
+    \draw[arrow] (input) -- (fusion);
+    \draw[arrow] (fusion) -- (xc);
+    \draw[arrow] (fusion) -- (xs);
+    
+    \draw[arrow] (xc) -- (gcn);
+    \draw[arrow] (xs) -- (bank) node[midway, above, font=\small, text=red] {Store};
+    
+    \draw[arrow] (gcn) -- (ba);
+    \draw[arrow, dashed] (bank) -- (ba) node[midway, right, font=\small, text=red] {Sample N=50};
+    \draw[arrow] (ba) -- (output);
+    
+    % Grouping
+    \begin{scope}[on background layer]
+        \node[fit=(fusion)(xc)(xs), draw=gray, dashed, inner sep=0.5cm, rounded corners, label=above:Disentanglement] {};
+        \node[fit=(ba)(output), draw=gray, dashed, inner sep=0.5cm, rounded corners, label=above:Causal Inference] {};
+    \end{scope}
+
+    \end{tikzpicture}
+    \caption{Sơ đồ luồng dữ liệu (Pipeline) của Kiến trúc Causal GNN v2}
+    \label{fig:architecture}
+\end{figure}
 
 \subsection{Trích xuất và Dung hợp Đa phương thức}
 Đầu vào hệ thống gồm hình ảnh $\mathcal{I}$ và văn bản $\mathcal{T}$. Mô hình sử dụng bộ mã hóa \texttt{open\_clip} (ViT, Text Encoder) đã được pre-train:
@@ -71,11 +123,24 @@ X_{c}^{graph} = X_c + X_g
 \end{equation}
 Việc ghép ghép Nhân quả ($X_c^{graph}$) của mẫu hiện tại với các bối cảnh $x_s$ bất kỳ hoàn toàn trung hòa ảnh hưởng của bối cảnh, trả về phân phối xác suất thuần túy.
 
-\section{Chiến lược Huấn luyện (Training Strategy)}
-Phương pháp sư dụng học trình tự (Curriculum Learning) để ổn định đồ thị và độ dốc (gradients):
+\section{Chiến lược Huấn luyện (Training Pipeline)}
+
+Hệ thống được thiết kế theo tư tưởng \textbf{Curriculum Learning} nhằm định hướng sự hội tụ của không gian Causal và Graph một cách an toàn.
+
+\subsection{Hệ thống Hàm Mất Mát (Loss Functions)}
+Sự phân tách $X_c$ và $X_s$ được giám sát chặt chẽ thông qua hàm mất mát tổng hợp:
+\begin{equation}
+\mathcal{L}_{Total} = \mathcal{L}_{Task}(X_c) + \alpha \cdot \mathcal{L}_{Spurious}(X_s)
+\end{equation}
+Trong đó $\mathcal{L}_{Task}$ đào tạo nhánh Nhân quả để phục vụ dự đoán nhãn chính (BCE/Cross-Entropy), trong khi $\mathcal{L}_{Spurious}$ tối ưu hóa rẽ nhánh $X_s$ bắt buộc học bối cảnh (context/domain). Mạng Adversarial (GRL) được cài cắm để ép $X_c \perp X_s$.
+
+\subsection{Hai Giai Đoạn Đào Tạo (Two-Phase Curriculum)}
 \begin{itemize}
-    \item \textbf{Phase 1: Warm-up (Epoch 1 $\rightarrow$ 15):} GCN bị ngắt kích hoạt (Adj = None). Các bộ chiếu đa phương thức (Projections) được học cục bộ để ổn định $X_c$ và $X_s$.
-    \item \textbf{Phase 2: Graph-enhanced Learning (Epoch 16 $\rightarrow$ 40):} GCN được bật. Mô hình liên tục cập nhật Memory Bank chứa $X_s$ từ dữ liệu phân mảnh và đào tạo phân loại để đạt ngưỡng hội tụ cuối cùng.
+    \item \textbf{Phase 1: Warm-up (Epoch 1 $\rightarrow$ 15):} 
+    Module GCN bị ngắt kích hoạt (Adj = None). Các bộ chiếu đa phương thức (Projections) và MLP Extractor được học cục bộ để thiết lập không gian đặc trưng cơ bản. Tại pha này, điểm dữ liệu là độc lập (I.I.D).
+    
+    \item \textbf{Phase 2: Graph-enhanced Learning (Epoch 16 $\rightarrow$ 40):} 
+    GCN được bật qua ma trận kề Batch-wise. Đồ thị bắt đầu lan truyền thông tin (Message Passing). Đồng thời, hệ thống thu thập $X_s$ sinh ra vào \texttt{MemoryBank}. Khâu đánh giá (Evaluate) bắt đầu kích hoạt triệt để Backdoor Adjustment lấy mẫu Monte Carlo thay vì Forward chuẩn.
 \end{itemize}
 
 \section{Kết quả Thực nghiệm (Experimental Results)}
