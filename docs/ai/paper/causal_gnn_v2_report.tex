@@ -42,44 +42,55 @@ Kiến trúc giải quyết bài toán đa phương thức thông qua 4 module t
     \centering
     \resizebox{\linewidth}{!}{
     \begin{tikzpicture}[
-        node distance=1.5cm and 2cm,
-        box/.style={rectangle, draw=blue!70, fill=blue!5, thick, rounded corners, align=center, minimum height=1cm},
-        causal/.style={rectangle, draw=green!70, fill=green!5, thick, rounded corners, align=center, minimum height=1cm},
-        spurious/.style={rectangle, draw=red!70, fill=red!5, thick, rounded corners, align=center, minimum height=1cm},
-        graph/.style={rectangle, draw=purple!70, fill=purple!5, thick, rounded corners, align=center, minimum height=1cm},
-        arrow/.style={-{Stealth[scale=1.2]}, thick}
+        node distance=1.2cm and 1.5cm,
+        box/.style={rectangle, draw=blue!70, fill=blue!5, thick, rounded corners, align=center, minimum height=0.8cm, font=\small},
+        causal/.style={rectangle, draw=green!70, fill=green!5, thick, rounded corners, align=center, minimum height=0.8cm, font=\small},
+        spurious/.style={rectangle, draw=red!70, fill=red!5, thick, rounded corners, align=center, minimum height=0.8cm, font=\small},
+        graph/.style={rectangle, draw=purple!70, fill=purple!5, thick, rounded corners, align=center, minimum height=0.8cm, font=\small},
+        arrow/.style={-{Stealth[scale=1.0]}, thick}
     ]
 
-    % Nodes
-    \node[box] (input) {Input (Img + Txt)};
-    \node[box, right=of input] (fusion) {CLIP Extractor \\ \& Late Fusion ($f_{fused}$)};
+    % Nodes - Input & Projection
+    \node[box] (img) {Image ($v$)};
+    \node[box, below=1cm of img] (txt) {Text ($t$)};
     
-    \node[causal, right=of fusion, yshift=1.5cm] (xc) {Causal Branch \\ $X_c$ (MLP)};
-    \node[spurious, right=of fusion, yshift=-1.5cm] (xs) {Spurious Branch \\ $X_s$ (MLP)};
+    \node[box, right=of img] (proj_img) {ModalityProj \\ $z_{img\_g}, z_{img\_s}$};
+    \node[box, right=of txt] (proj_txt) {ModalityProj \\ $z_{txt\_g}, z_{txt\_s}$};
     
-    \node[graph, right=of xc] (gcn) {k-NN Graph \\ GCN Layer ($X_c^{graph}$)};
+    \node[box, right=of proj_img, yshift=-0.9cm] (unified) {Concat / Fusion \\ $z_{unified}$};
+    
+    % Disentanglement
+    \node[causal, right=of unified, yshift=1.2cm] (xc) {Causal Branch \\ $X_c$};
+    \node[spurious, right=of unified, yshift=-1.2cm] (xs) {Spurious Branch \\ $X_s$};
+    
+    % Graph & Memory
+    \node[graph, right=of xc] (sage) {k-NN Graph \\ GraphSAGE ($X_c^{graph}$)};
     \node[spurious, right=of xs] (bank) {Memory Bank \\ (Size: 2000)};
     
-    \node[box, right=of gcn, yshift=-1.5cm, fill=orange!10, draw=orange!70] (ba) {Backdoor Adjustment \\ $\mathbb{E}_{X_s} [P(Y | do(X_c))]$};
-    
-    \node[box, right=of ba] (output) {Robust Prediction \\ (Final Logits)};
+    % Causal Inference
+    \node[box, right=of sage, yshift=-1.2cm, fill=orange!10, draw=orange!70] (ba) {Backdoor Adjustment \\ $\mathbb{E}_{X_s} [P(Y | do(X_c))]$};
+    \node[box, right=of ba] (output) {Robust \\ Logits};
 
     % Arrows
-    \draw[arrow] (input) -- (fusion);
-    \draw[arrow] (fusion) -- (xc);
-    \draw[arrow] (fusion) -- (xs);
+    \draw[arrow] (img) -- (proj_img);
+    \draw[arrow] (txt) -- (proj_txt);
     
-    \draw[arrow] (xc) -- (gcn);
-    \draw[arrow] (xs) -- (bank) node[midway, above, font=\small, text=red] {Store};
+    \draw[arrow] (proj_img.east) -- (unified.west);
+    \draw[arrow] (proj_txt.east) -- (unified.west);
     
-    \draw[arrow] (gcn) -- (ba);
-    \draw[arrow, dashed] (bank) -- (ba) node[midway, right, font=\small, text=red] {Sample N=50};
+    \draw[arrow] (unified.east) -- (xc.west);
+    \draw[arrow] (unified.east) -- (xs.west);
+    
+    \draw[arrow] (xc) -- (sage);
+    \draw[arrow] (xs) -- (bank) node[midway, above, font=\scriptsize, text=red] {Store};
+    
+    \draw[arrow] (sage) -- (ba);
+    \draw[arrow, dashed] (bank) -- (ba) node[midway, right, font=\scriptsize, text=red] {Sample N=50};
     \draw[arrow] (ba) -- (output);
     
     % Grouping
     \begin{scope}[on background layer]
-        \node[fit=(fusion)(xc)(xs), draw=gray, dashed, inner sep=0.5cm, rounded corners, label=above:Disentanglement] {};
-        \node[fit=(ba)(output), draw=gray, dashed, inner sep=0.5cm, rounded corners, label=above:Causal Inference] {};
+        \node[fit=(proj_img)(proj_txt)(unified)(xc)(xs), draw=gray, dashed, inner sep=0.3cm, rounded corners, label=above:3-Level Disentanglement] {};
     \end{scope}
 
     \end{tikzpicture}
@@ -88,36 +99,38 @@ Kiến trúc giải quyết bài toán đa phương thức thông qua 4 module t
     \label{fig:architecture}
 \end{figure}
 
-\subsection{Trích xuất và Dung hợp Đa phương thức}
+\subsection{Trích xuất và Phân tách Đặc trưng (Disentanglement)}
 Đầu vào hệ thống gồm hình ảnh $\mathcal{I}$ và văn bản $\mathcal{T}$. Mô hình sử dụng bộ mã hóa \texttt{open\_clip} (ViT, Text Encoder) đã được pre-train:
 \begin{align}
 v &= \text{CLIP}_{vision}(\mathcal{I}) \nonumber \\
 t &= \text{CLIP}_{text}(\mathcal{T})
 \end{align}
-Hai véc-tơ đặc trưng được ánh xạ xuống không gian $d=512$ thông qua Linear Projection và dung hợp theo chiến lược Late Fusion:
-\begin{equation}
-f_{fused} = \text{LayerNorm}(W_v v + W_t t)
-\end{equation}
-Tại đây, $f_{fused}$ chứa véc-tơ không gian đặc trưng toàn diện, bao gồm cả nguyên nhân cốt lõi (causal) và các nhiễu nền (spurious contextual bias).
-Ngoài ra, để gia tăng độ mạnh bạo và trơn tru cho bề mặt quyết định, hệ thống kết hợp kỹ thuật Data Augmentation dạng \textbf{MixUp} tại không gian hợp nhất này, tạo ra các vector trung gian nâng cao khả năng chống chịu nhiễu.
 
-\subsection{Phân tách Đặc trưng (Disentanglement)}
-Từ đặc trưng chung $f_{fused}$, mô hình áp dụng hai Mạng Nơ-ron Đa lớp (MLP) rời rạc để cấu trúc lại thông tin thành hai không gian trực giao:
+Hệ thống tuân thủ nghiêm ngặt **3 Cấp độ Phân tách (3-Level Disentanglement)**:
+\textbf{Cấp độ 1:} Chiết xuất phương thức chung và cục bộ thông qua \texttt{ModalityProjector}. Mỗi véc-tơ $(v, t)$ đi qua 2 luồng MLP để tách phần cốt lõi (general) và phần đặc thù (specific):
 \begin{align}
-X_c &= \text{ReLU}(W_{c} \, f_{fused}) \quad \text{(Nhánh Đặc trưng Nhân quả)} \nonumber \\
-X_s &= \text{ReLU}(W_{s} \, f_{fused}) \quad \text{(Nhánh Tương quan Nhiễu)}
+z_{img\_g}, z_{img\_s} &= \text{ModalityProj}_{Img}(v) \\
+z_{txt\_g}, z_{txt\_s} &= \text{ModalityProj}_{Txt}(t)
 \end{align}
-Chiến lược này đáp ứng cấu trúc mô hình nhân quả (SCM - Structural Causal Model) với 3 cấp độ phân tách (3-Level Disentanglement): (1) Phân tách phương thức chung và riêng, (2) Bất biến theo miền và phụ thuộc miền, (3) Phân tách đặc trưng đủ điều kiện nhân quả. Điều này thiết lập nền móng cho việc cô lập hoàn toàn các phân phối thiên lệch về domain.
 
-\subsection{Tương tác qua Mạng Tích chập Đồ thị (GCN)}
-Bằng việc khai thác mối tương quan giữa các mẫu trong một mini-batch, Causal GNN v2 xây dựng ma trận kề $A$ (k-NN Graph với $k=3$) dựa trên khoảng cách của véc-tơ $X_c$. Tiếp đó \textit{Graph Convolutional Network} (GCN) lan truyền đặc trưng qua các đỉnh đồ thị, mượn độ tự tin của láng giềng:
+\textbf{Cấp độ 2:} Dung hợp véc-tơ chung (General Fusion):
 \begin{equation}
-X_{g} = \left( \tilde{D}^{-1/2} \tilde{A} \tilde{D}^{-1/2} \right) X_c W_{gnn}
+z_{unified} = \text{Concat}(z_{img\_g}, z_{txt\_g})
 \end{equation}
-Thiết kế sử dụng cầu nối phần dư (Residual Connection) nhằm bảo toàn đặc trưng phân biệt:
-\begin{equation}
-X_{c}^{graph} = X_c + X_g
-\end{equation}
+Ngoài ra, để gia tăng độ mạnh bạo và trơn tru cho bề mặt quyết định, hệ thống kết hợp kỹ thuật Data Augmentation dạng \textbf{MixUp} tại không gian hợp nhất $z_{unified}$, tạo ra các vector trung gian nâng cao khả năng chống chịu nhiễu.
+
+\textbf{Cấp độ 3:} Phân tách Đặc trưng Nhân quả. Từ $z_{unified}$, mô hình áp dụng \texttt{CausalDisentanglerV2} để chia thông tin thành hai không gian trực giao:
+\begin{align}
+X_c, X_s &= \text{CausalDisentangle}(z_{unified})
+\end{align}
+$X_c$ chứa đặc trưng nhân quả quyết định nhãn, trong khi $X_s$ bắt giữ phân phối tương quan ngoại biên (spurious context/bias). Cấu trúc này thiết lập nền móng cho SCM (Mô hình Causal Cấu trúc).
+
+\subsection{Tương tác qua Mạng Tích chập Đồ thị (GraphSAGE)}
+Khác biệt với SOTA sử dụng GCN tiêu chuẩn, kiến trúc v2 triển khai Mạng \textit{GraphSAGE (Graph Sample and Aggregate)} để gia tăng khả năng bao hàm thông tin láng giềng. Bằng việc xây dựng ma trận kề $\tilde{A}$ (k-NN Graph) từ khoảng cách của véc-tơ $X_c$, thông điệp được tổ hợp (concatenate) thay vì chỉ tính tổng:
+\begin{align}
+h_N &= \tilde{A} X_c \\
+X_c^{graph} &= \text{ReLU}\left( W_{sage} [X_c || h_N] \right)
+\end{align}
 
 \textbf{Cải tiến Động năng Cạnh (Heterophily-Aware Graph Rewiring):}
 Nhược điểm của k-NN graph là dễ vướng phải kết nối giữa các node không cùng nhãn (dị biệt - Heterophily), đặc biệt là trong Unseen Domain. Để khắc phục, hệ thống giới thiệu module \texttt{EdgeHeterophilyScorer}. Dựa trên phân phối logits bước đầu, module trừng phạt các cạnh nối có mức độ dị biệt cao:
