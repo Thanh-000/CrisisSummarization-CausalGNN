@@ -57,19 +57,21 @@ Kiến trúc giải quyết bài toán đa phương thức thông qua 4 module t
     \node[box, right=of img] (proj_img) {ModalityProj \\ $z_{img\_g}, z_{img\_s}$};
     \node[box, right=of txt] (proj_txt) {ModalityProj \\ $z_{txt\_g}, z_{txt\_s}$};
     
-    \node[box, right=of proj_img, yshift=-0.9cm] (unified) {Concat / Fusion \\ $z_{unified}$};
+    \node[box, right=of proj_img, yshift=-0.9cm] (unified) {Concat / Fusion \\ ($z_{unified} + \text{MixUp}$)};
     
     % Disentanglement
-    \node[causal, right=of unified, yshift=1.2cm] (xc) {Causal Branch \\ $X_c$};
-    \node[spurious, right=of unified, yshift=-1.2cm] (xs) {Spurious Branch \\ $X_s$};
+    \node[causal, right=of unified, yshift=1.4cm] (xc) {Causal Branch \\ $X_c$};
+    \node[spurious, right=of unified, yshift=-1.4cm] (xs) {Spurious Branch \\ $X_s$};
     
     % Graph & Memory
-    \node[graph, right=of xc] (sage) {k-NN Graph \\ GraphSAGE ($X_c^{graph}$)};
+    \node[box, above=0.5cm of xc, fill=yellow!10, draw=yellow!70] (hetero) {Heterophily Scorer \\ (Clean edges $\tilde{A}$)};
+    \node[graph, right=of xc] (sage) {GraphSAGE Layer \\ $\text{ReLU}(W_{sage}[X_c || \tilde{A}X_c])$};
     \node[spurious, right=of xs] (bank) {Memory Bank \\ (Size: 2000)};
     
-    % Causal Inference
-    \node[box, right=of sage, yshift=-1.2cm, fill=orange!10, draw=orange!70] (ba) {Backdoor Adjustment \\ $\mathbb{E}_{X_s} [P(Y | do(X_c))]$};
-    \node[box, right=of ba] (output) {Robust \\ Logits};
+    % Causal Inference (Backdoor)
+    \node[box, right=of sage, yshift=-1.4cm, fill=orange!10, draw=orange!70] (combine) {$\oplus$ Fusion \\ $X_c^{graph} + x_s^{(i)}$};
+    \node[box, right=of combine, fill=orange!10, draw=orange!70] (classifier) {Classifier \& \\ Softmax};
+    \node[box, right=of classifier, fill=orange!10, draw=orange!70] (output) {Robust Logits \\ $\log(\frac{1}{N}\sum P_i)$};
 
     % Arrows
     \draw[arrow] (img) -- (proj_img);
@@ -82,15 +84,21 @@ Kiến trúc giải quyết bài toán đa phương thức thông qua 4 module t
     \draw[arrow] (unified.east) -- (xs.west);
     
     \draw[arrow] (xc) -- (sage);
+    \draw[arrow] (xc) -- (hetero);
+    \draw[arrow] (hetero.east) -| (sage.top) node[pos=0.25, above, font=\scriptsize] {$\tilde{A}$};
+    
     \draw[arrow] (xs) -- (bank) node[midway, above, font=\scriptsize, text=red] {Store};
     
-    \draw[arrow] (sage) -- (ba);
-    \draw[arrow, dashed] (bank) -- (ba) node[midway, right, font=\scriptsize, text=red] {Sample N=50};
-    \draw[arrow] (ba) -- (output);
+    \draw[arrow] (sage.south) |- (combine.west) node[near start, right, font=\scriptsize] {$X_c^{graph}$};
+    \draw[arrow, dashed] (bank.east) -| (combine.south) node[near start, below, font=\scriptsize, text=red] {Sample N=50 ($x_s^{(i)}$)};
+    
+    \draw[arrow] (combine) -- (classifier) node[midway, above, font=\scriptsize] {$\forall i \in [1, N]$};
+    \draw[arrow] (classifier) -- (output) node[midway, above, font=\scriptsize] {$\mathbb{E}$};
     
     % Grouping
     \begin{scope}[on background layer]
         \node[fit=(proj_img)(proj_txt)(unified)(xc)(xs), draw=gray, dashed, inner sep=0.3cm, rounded corners, label=above:3-Level Disentanglement] {};
+        \node[fit=(combine)(classifier)(output), draw=orange, dashed, inner sep=0.3cm, rounded corners, label=above:Causal Inference (Backdoor Adjustment)] {};
     \end{scope}
 
     \end{tikzpicture}
