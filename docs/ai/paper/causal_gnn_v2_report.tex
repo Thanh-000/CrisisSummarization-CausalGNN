@@ -14,6 +14,7 @@
 \usepackage{multirow}
 \usepackage{tikz}
 \usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, backgrounds}
+\usepackage[ruled,vlined,linesnumbered]{algorithm2e}
 
 \title{\textbf{Kiến trúc Causal GNN v2 cho Phân loại Thảm họa Đa phương thức: Phân tách Đặc trưng và Điều chỉnh Cửa sau}}
 \author{Nhóm Nghiên cứu Dự án CrisisSummarization}
@@ -171,14 +172,51 @@ Trong đó:
 \end{itemize}
 Đặc biệt, Mạng đối nghịch Gradient Reversal Layer (GRL) được cài cắm ở nhánh Classifier của $X_c$ để đánh lừa Domain Discriminator, chính thức ép buộc điều kiện cực kỳ khắt khe: $(X_c \perp \text{Domain})$.
 
-\subsection{Hai Giai Đoạn Đào Tạo (Two-Phase Curriculum)}
-\begin{itemize}
-    \item \textbf{Phase 1: Warm-up (Epoch 1 $\rightarrow$ 15):} 
-    Module GCN bị ngắt kích hoạt (Adj = None). Các bộ chiếu đa phương thức (Projections) và MLP Extractor được học cục bộ để thiết lập không gian đặc trưng cơ bản. Tại pha này, điểm dữ liệu là độc lập (I.I.D).
-    
-    \item \textbf{Phase 2: Graph-enhanced Learning (Epoch 16 $\rightarrow$ 40):} 
-    GCN được bật qua ma trận kề Batch-wise. Đồ thị bắt đầu lan truyền thông tin (Message Passing). Đồng thời, hệ thống thu thập $X_s$ sinh ra vào \texttt{MemoryBank}. Khâu đánh giá (Evaluate) bắt đầu kích hoạt triệt để Backdoor Adjustment lấy mẫu Monte Carlo thay vì Forward chuẩn.
-\end{itemize}
+\subsection{Thuật toán Huấn luyện và Suy diễn Nhân quả}
+
+Sự khác biệt của Causal GNN v2 không chỉ nằm ở mảng tĩnh (kiến trúc) mà tập trung cực mạnh ở trình tự thực thi động (Curriculum flow). Thay vì cho phép đồ thị (Graph) can thiệp ngay lập tức khi mạng lõi còn nhiễu loạn, hệ thống triển khai phương pháp rèn luyện 2 pha tinh xảo được quy chuẩn hóa trong Thuật toán \ref{algo:causal_curriculum}.
+
+\begin{algorithm}[H]
+\caption{Cầu trúc Đào tạo Curriculum \& Khử nhiễu Cửa sau}\label{algo:causal_curriculum}
+\SetAlgoLined
+\KwIn{Tập huấn luyện hỗn hợp $\mathcal{D} = \{v_i, t_i, y_i\}$, Số Epoch $E$, Hyperparams $\alpha$}
+\KwOut{Mô hình $f(\theta)$ vững chắc và $\text{MemoryBank}$}
+ Khởi tạo $\text{MemoryBank} \leftarrow \emptyset$ (sức chứa = 2000)\;
+ \tcp{========= PHASE 1: WARM-UP ROUND =========}
+ \For{$epoch \leftarrow 1$ \KwTo $15$}{
+  \For{minibatch $(v, t, y) \in \mathcal{D}$}{
+   $z_{unified} \leftarrow \text{Concat}(\text{ModalityProj}(v, t))$\;
+   $X_c, X_s \leftarrow \text{CausalDisentangle}(z_{unified})$\;
+   \tcp{Dự đoán cục bộ không qua Đồ thị (I.I.D)}
+   $\text{Logits} \leftarrow \text{Classifier}(X_c)$\; 
+   Tối ưu hóa tham số với loss tổng hợp $\mathcal{L}_{Total}$\;
+  }
+ }
+ \tcp{========= PHASE 2: GRAPH ENHANCEMENT \& MEMORY =========}
+ \For{$epoch \leftarrow 16$ \KwTo $40$}{
+  \For{minibatch $(v, t, y) \in \mathcal{D}$}{
+   Trích xuất $X_c, X_s$ tương tự Phase 1\;
+   $\text{MemoryBank}.\text{Push}(X_s)$ \tcp*{Thu thập phân phối Context}
+   $\tilde{A} \leftarrow \text{HeterophilyScorer}(X_c)$ \tcp*{Xây ma trận kề sạch}
+   $X_c^{graph} \leftarrow \text{GraphSAGE}(X_c, \tilde{A})$ \tcp*{Giao tiếp láng giềng}
+   $\text{Logits} \leftarrow \text{Classifier}(X_c^{graph})$\;
+   Tối ưu hóa các lớp đồ thị và phân loại\;
+  }
+ }
+ \tcp{========= PHASE 3: CAUSAL INFERENCE (BACKDOOR) =========}
+ \For{minibatch thử nghiệm $(v', t') \in \mathcal{D}_{Test}$}{
+    Trích xuất $X_c'^{graph}$ bằng mô hình hoàn chỉnh\;
+    Khởi tạo $List\_Probs \leftarrow []$\;
+    \For{$n \leftarrow 1$ \KwTo $50$}{
+        $x_s^{(n)} \sim \text{MemoryBank}$ \tcp*{Lấy mẫu ngẫu nhiên $X_s$}
+        $P_n = \text{Softmax}(\text{Classifier}(X_c'^{graph} + x_s^{(n)}))$\;
+        $List\_Probs.\text{Append}(P_n)$\;
+    }
+    $\text{Robust\_Logits} = \log\left(\frac{1}{50} \sum_{n=1}^{50} List\_Probs[n] \right)$\;
+ }
+\end{algorithm}
+
+Thuật toán trên giải quyết dứt điểm tính phi cấu trúc (Unstructured properties) của dữ liệu rác. Nhờ cơ chế Đóng/Mở Đồ thị (Phase 1 sang Phase 2), không gian $X_c$ đủ cứng cáp thì mới được đưa đi cấu trúc hóa quan hệ láng giềng. Bước Inference cực đại hóa nguyên lý Nhân quả bằng cách "ném" mẫu cần test $X_c'^{graph}$ vào 50 biển nhiễu (bias) khác nhau để trung bình hóa cảm nhận bề mặt.
 
 \section{Thiết lập Thực nghiệm (Experimental Setup)}
 
