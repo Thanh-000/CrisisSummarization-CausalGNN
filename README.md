@@ -7,6 +7,8 @@ This repository implements the **Causal Multimodal Reasoning Framework for Crisi
 
 The framework focuses on **Out-of-Distribution (OOD)** generalizability to unseen disasters by separating invariant, event-agnostic _causal features_ from heavily biased _spurious features_.
 
+> 💡 **NEW - Phase 3 Update (Mar 2026):** We have aligned our implementation to the **Causal GNN v2** architecture, incorporating standard GCN layers, 3-level disentanglement, and Monte Carlo Backdoor Adjustment. Check out `causal_crisis_v2_training.ipynb` for the complete implementation!
+
 ## 📖 Table of Contents
 1. [Repository Structure](#repository-structure)
 2. [Prerequisites & Dataset Setup](#prerequisites--dataset-setup)
