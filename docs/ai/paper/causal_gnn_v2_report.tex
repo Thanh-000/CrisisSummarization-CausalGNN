@@ -31,9 +31,9 @@ Việc phân loại dữ liệu thảm họa từ mạng xã hội đóng vai tr
 
 Dữ liệu thảm họa trên mạng xã hội thường mang tính đa phương thức, kết hợp văn bản và hình ảnh. Mặc dù các mô hình nền tảng như CLIP cho khả năng trích xuất đặc trưng tốt, chúng dễ dàng "học vẹt" bối cảnh thay vì học nguyên nhân thực sự (causal factors) của thảm họa. Ví dụ, sự hiện diện của áo phao có thể gắn với lũ lụt, nhưng cũng có thể xuất hiện trong bối cảnh du lịch bình thường.
 
-Các phương pháp phân loại SOTA hiện tại (như CAMO, SimMMDG, CIRL) mặc dù đã nỗ lực giải quyết phân phối ngoài miền (Out-of-Distribution) nhưng vẫn gặp hạn chế. Phần lớn chỉ dừng lại ở việc tách biệt đặc trưng cơ bản (Modality-level) hoặc chỉ giải quyết nhân quả trên dữ liệu đơn phương thức (Single-modal Graph).
+Các phương pháp phân loại SOTA hiện tại (như CAMO, SimMMDG, CIRL) mặc dù đã nỗ lực giải quyết phân phối ngoài miền (Out-of-Distribution - OOD) nhưng vẫn gặp hạn chế. Phần lớn chỉ dừng lại ở việc tách biệt đặc trưng cơ bản (Modality-level) hoặc chỉ giải quyết nhân quả trên dữ liệu đơn phương thức (Single-modal Graph). Hơn nữa, những bộ dữ liệu thảm họa (ví dụ: CrisisMMD) có đặc trưng thiên lệch rất lớn (class imbalance), đòi hỏi một kiến trúc không chỉ mạnh về biểu diễn mà còn phải chống chịu tốt với thiên kiến.
 
-Để giải quyết triệt để rào cản này, kiến trúc Causal GNN v2 đề xuất một cơ chế can thiệp nhân quả (Causal Intervention) thông qua lý thuyết đồ thị và tách bạch 3 cấp độ (3-level disentanglement). Thay vì dự đoán dựa vào mô hình nhân quả quan sát $\mathbb{P}(Y|X)$, chúng ta định hình lại dữ liệu qua toán tử \textit{do-calculus} của Judea Pearl: $\mathbb{P}(Y|do(X))$. Báo cáo này đi sâu vào phân tích kiến trúc, pipeline xử lý, định thức toán học và đánh giá toàn diện.
+Để giải quyết triệt để rào cản này, nghiên cứu đề xuất Hệ thống Causal GNN v2, với cơ chế can thiệp nhân quả (Causal Intervention) thông qua lý thuyết đồ thị và tách bạch 3 cấp độ (3-level disentanglement). Thay vì dự đoán dựa vào mô hình nhân quả quan sát $\mathbb{P}(Y|X)$, chúng ta định hình lại dữ liệu qua toán tử \textit{do-calculus} của Judea Pearl: $\mathbb{P}(Y|do(X))$. Báo cáo này đi sâu vào phân tích kiến trúc, pipeline xử lý, định thức toán học và đánh giá toàn diện trên cả 3 tác vụ chính của thảm họa.
 \section{Kiến trúc Hệ thống (System Architecture)}
 
 Kiến trúc giải quyết bài toán đa phương thức thông qua 4 module trọng tâm, tạo thành một \textbf{Pipeline khép kín} từ dữ liệu thô đến dự đoán miễn nhiễm nhiễu.
@@ -180,9 +180,23 @@ Trong đó:
     GCN được bật qua ma trận kề Batch-wise. Đồ thị bắt đầu lan truyền thông tin (Message Passing). Đồng thời, hệ thống thu thập $X_s$ sinh ra vào \texttt{MemoryBank}. Khâu đánh giá (Evaluate) bắt đầu kích hoạt triệt để Backdoor Adjustment lấy mẫu Monte Carlo thay vì Forward chuẩn.
 \end{itemize}
 
+\section{Thiết lập Thực nghiệm (Experimental Setup)}
+
+\subsection{Dữ liệu và Tác vụ (Datasets \& Tasks)}
+Nghiên cứu sử dụng bộ dữ liệu chuẩn mực \textbf{CrisisMMD v2.0}, tập hợp hàng nghìn bài đăng (tweet) đa phương thức trên Twitter xoay quanh 7 thảm họa toàn cầu (động đất, bão tuyết, cháy rừng...). Hệ thống được thử nghiệm giải quyết toàn diện 3 bài toán (Tasks) có tính ứng dụng cao nhưng mắc phải hạn chế OOD cực kỳ lớn:
+\begin{enumerate}
+    \item \textbf{Task 1 (Tính Hữu ích - Informative):} Phân loại nhị phân (Binary) xem một bài đăng có chứa thông tin hữu ích cho công tác cứu trợ hay không (Informative vs. Not Informative).
+    \item \textbf{Task 2 (Phân loại Nhân đạo - Humanitarian):} Phân lớp đa nhãn (Multi-class) đưa bài đăng vào các danh mục cứu trợ như: \textit{Affected Individuals, Infrastructure Damage, Rescue \& Volunteering, v.v.}
+    \item \textbf{Task 3 (Thiết hại Vật chất - Damage Severity):} Đánh giá mức độ thiệt hại của cơ sở hạ tầng được báo cáo (Severe, Mild, None).
+\end{enumerate}
+
+\subsection{Thông số Kỹ thuật \& Thước đo Đánh giá (Metrics)}
+Để đảm bảo tính công bằng trên dữ liệu thảm họa luôn bị mất cân bằng trầm trọng, nghiên cứu không sử dụng Accuracy thông thường. Hai thước đo chính được lựa chọn là \textbf{Weighted F1-Score} và \textbf{Balanced Accuracy} (Trung bình cộng recall của các lớp). 
+Hệ thống được huấn luyện cấu hình \textit{Batch Size = 32}, sử dụng bộ tối ưu \textit{AdamW}. Một chiến lược học tập phân mảnh (Differential Learning Rate) được áp dụng: $lr=2\times10^{-5}$ cho toàn bộ bộ trích xuất (backbone) và MLP, trong khi mạng GraphSAGE có $lr_g=1\times10^{-4}$ giúp đồ thị ưu tiên hội tụ nhánh liên kết.
+
 \section{Kết quả Thực nghiệm (Experimental Results)}
 
-Quá trình dự đoán được thử nghiệm trên bộ CrisisMMD với 3 tác vụ chính, chạy bằng nhiều Seed (42, 2024, 2025). Kết quả Multi-Seed trung bình như sau:
+Quá trình dự đoán được thử nghiệm đánh giá chéo trên bộ CrisisMMD với 3 tác vụ chính. Nhằm kiểm chứng sự ổn định (stability) trước rủi ro khởi tạo từ OOD, báo cáo công bố điểm thu được từ phương pháp \textbf{Multi-Seed Analysis} chạy qua 3 tập random seeds cố định (42, 2024, 2025). Kết quả trung bình hệ thống đạt được như sau:
 
 \begin{table}[H]
     \centering
