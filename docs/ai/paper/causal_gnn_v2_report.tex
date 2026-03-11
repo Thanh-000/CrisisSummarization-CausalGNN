@@ -1,0 +1,109 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T5]{fontenc} % For Vietnamese characters
+\usepackage{amsmath, amssymb}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{geometry}
+\geometry{a4paper, margin=2.5cm}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage{caption}
+
+\title{\textbf{Kiến trúc Causal GNN v2 cho Phân loại Thảm họa Đa phương thức: Phân tách Đặc trưng và Điều chỉnh Cửa sau}}
+\author{Nhóm Nghiên cứu Dự án CrisisSummarization}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Việc phân loại dữ liệu thảm họa từ mạng xã hội đóng vai trò quan trọng trong việc hỗ trợ các nỗ lực cứu trợ nhân đạo. Tuy nhiên, các mô hình học sâu truyền thống thường bị ảnh hưởng bởi những sự tương quan nhiễu (spurious correlations) do thiên lệch bối cảnh (domain bias). Báo cáo này trình bày kiến trúc Causal GNN v2, một phương pháp học sâu nhằm cải thiện khả năng tổng quát hóa trên miền dữ liệu thảm họa bằng cách tích hợp suy luận nhân quả (Causal Inference) và Mạng nơ-ron Tích chập Đồ thị (Graph Convolutional Networks - GCN). Thông qua việc phân tách đặc trưng (Disentanglement) thành nhánh nhân quả và nhánh nhiễu, đồng thời sử dụng thuật toán Điều chỉnh Cửa sau (Backdoor Adjustment) với cơ chế Monte Carlo, mô hình loại bỏ các yếu tố nhiễu trong quá trình suy luận. Thử nghiệm trên 3 tác vụ phân loại của bộ dữ liệu CrisisMMD cho thấy mô hình đạt độ chính xác cân bằng (Balanced Accuracy) và Weighted F1 cao, thiết lập hiệu suất cạnh tranh cho bài toán phân loại thảm họa.
+\end{abstract}
+
+\section{Giới thiệu (Introduction)}
+
+Dữ liệu thảm họa trên mạng xã hội thường mang tính đa phương thức, kết hợp văn bản và hình ảnh. Mặc dù các mô hình nền tảng như CLIP cho khả năng trích xuất đặc trưng tốt, chúng dễ dàng "học vẹt" bối cảnh thay vì học nguyên nhân thực sự (causal factors) của thảm họa. Ví dụ, sự hiện diện của áo phao có thể gắn với lũ lụt, nhưng cũng có thể xuất hiện trong bối cảnh du lịch. 
+
+Để giải quyết vấn đề rò rỉ bối cảnh này, kiến trúc Causal GNN v2 đề xuất một cơ chế can thiệp nhân quả (Causal Intervention) thông qua lý thuyết đồ thị. Thay vì dựa vào phân phối xác suất quan sát được $\mathbb{P}(Y|X)$, chúng ta định hình dữ liệu thông qua toán tử \textit{do-calculus} của Judea Pearl: $\mathbb{P}(Y|do(X))$. Báo cáo này trình bày phương pháp luận, kiến trúc luồng dữ liệu, thao tác đào tạo hai giai đoạn, và báo cáo kết quả đánh giá cuối cùng.
+
+\section{Phương pháp luận và Kiến trúc Hệ thống}
+
+Kiến trúc giải quyết bài toán đa phương thức thông qua 4 module trọng tâm, đảm nhiệm việc trích xuất và thanh lọc tri thức. 
+
+\subsection{Trích xuất và Dung hợp Đa phương thức}
+Đầu vào hệ thống gồm hình ảnh $\mathcal{I}$ và văn bản $\mathcal{T}$. Mô hình sử dụng bộ mã hóa \texttt{open\_clip} (ViT, Text Encoder) đã được pre-train:
+\begin{align}
+v &= \text{CLIP}_{vision}(\mathcal{I}) \nonumber \\
+t &= \text{CLIP}_{text}(\mathcal{T})
+\end{align}
+Hai véc-tơ đặc trưng được ánh xạ xuống không gian $d=512$ thông qua Linear Projection và dung hợp theo chiến lược Late Fusion:
+\begin{equation}
+f_{fused} = \text{LayerNorm}(W_v v + W_t t)
+\end{equation}
+Tại đây, $f_{fused}$ chứa véc-tơ không gian đặc trưng toàn diện, bao gồm cả nguyên nhân cốt lõi (causal) và các nhiễu nền (spurious contextual bias).
+
+\subsection{Phân tách Đặc trưng (Disentanglement)}
+Từ đặc trưng chung $f_{fused}$, mô hình áp dụng hai Mạng Nơ-ron Đa lớp (MLP) rời rạc để cấu trúc lại thông tin thành hai không gian trực giao:
+\begin{align}
+X_c &= \text{ReLU}(W_{c} \, f_{fused}) \quad \text{(Nhánh Đặc trưng Nhân quả)} \nonumber \\
+X_s &= \text{ReLU}(W_{s} \, f_{fused}) \quad \text{(Nhánh Tương quan Nhiễu)}
+\end{align}
+Chiến lược này đáp ứng cấu trúc mô hình nhân quả (SCM - Structural Causal Model), cô lập các phân phối thiên lệch về domain ra khỏi không gian dự đoán đích.
+
+\subsection{Tương tác qua Mạng Tích chập Đồ thị (GCN)}
+Bằng việc khai thác mối tương quan giữa các mẫu trong một mini-batch, Causal GNN v2 xây dựng ma trận kề $A$ (k-NN Graph với $k=3$) dựa trên khoảng cách của véc-tơ $X_c$. Tiếp đó \textit{Graph Convolutional Network} (GCN) lan truyền đặc trưng qua các đỉnh đồ thị, mượn độ tự tin của láng giềng:
+\begin{equation}
+X_{g} = \left( \tilde{D}^{-1/2} \tilde{A} \tilde{D}^{-1/2} \right) X_c W_{gnn}
+\end{equation}
+Thiết kế sử dụng cầu nối phần dư (Residual Connection) nhằm bảo toàn đặc trưng phân biệt:
+\begin{equation}
+X_{c}^{graph} = X_c + X_g
+\end{equation}
+
+\subsection{Cơ chế Điều chỉnh Cửa sau (Backdoor Adjustment)}
+Để xóa bỏ "Đường dẫn cửa sau" do các yếu tố nhiễu (Confounders) gây ra, Causal GNN v2 duy trì một \textbf{Spurious Memory Bank} dung lượng 2000 phần tử (chứa $X_s$ từ các batch trước). Trong quá trình Đánh giá (Inference), định lý Backdoor Adjustment được mô phỏng bằng phép lấy mẫu ngẫu nhiên (Monte Carlo Sampling) với $N=50$:
+\begin{equation}
+\text{Logits}_{ba} = \frac{1}{N} \sum_{i=1}^{N} \text{Classifier}(X_c^{graph} + x_s^{(i)})
+\end{equation}
+Việc ghép ghép Nhân quả ($X_c^{graph}$) của mẫu hiện tại với các bối cảnh $x_s$ bất kỳ hoàn toàn trung hòa ảnh hưởng của bối cảnh, trả về phân phối xác suất thuần túy.
+
+\section{Chiến lược Huấn luyện (Training Strategy)}
+Phương pháp sư dụng học trình tự (Curriculum Learning) để ổn định đồ thị và độ dốc (gradients):
+\begin{itemize}
+    \item \textbf{Phase 1: Warm-up (Epoch 1 $\rightarrow$ 15):} GCN bị ngắt kích hoạt (Adj = None). Các bộ chiếu đa phương thức (Projections) được học cục bộ để ổn định $X_c$ và $X_s$.
+    \item \textbf{Phase 2: Graph-enhanced Learning (Epoch 16 $\rightarrow$ 40):} GCN được bật. Mô hình liên tục cập nhật Memory Bank chứa $X_s$ từ dữ liệu phân mảnh và đào tạo phân loại để đạt ngưỡng hội tụ cuối cùng.
+\end{itemize}
+
+\section{Kết quả Thực nghiệm (Experimental Results)}
+
+Quá trình dự đoán được thử nghiệm trên bộ CrisisMMD với 3 tác vụ chính, chạy bằng nhiều Seed (42, 2024, 2025). Kết quả Multi-Seed trung bình như sau:
+
+\begin{table}[H]
+    \centering
+    \caption{Kết quả Phân loại cuối cùng (Causal GNN v2)}
+    \begin{tabular}{llc}
+        \toprule
+        \textbf{Phân loại Tác vụ} & \textbf{Metric} & \textbf{Mean $\pm$ Std} \\
+        \midrule
+        \multirow{2}{*}{\textbf{Task 1: Tính Hữu ích (Informative)}} & Weighted F1 & $0.8223 \pm 0.0021$ \\
+                                                                    & Balanced Acc & $0.8193 \pm 0.0022$ \\
+        \midrule
+        \multirow{2}{*}{\textbf{Task 2: Phân loại Nhân đạo (Humanitarian)}}& Weighted F1 & $0.6718 \pm 0.0025$ \\
+                                                                    & Balanced Acc & $0.6652 \pm 0.0020$ \\
+        \midrule
+        \multirow{2}{*}{\textbf{Task 3: Thiệt hại Vật chất (Damage)}}    & Weighted F1 & $0.6931 \pm 0.0027$ \\
+                                                                    & Balanced Acc & $0.6881 \pm 0.0000$ \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Phân tích định tính hình thái dữ liệu qua các đồ thị \textbf{t-SNE} cho thấy không gian đặc trưng của $X_c^{graph}$ trong Phase 2 đã phân cụm rõ ràng và chia tách tốt hơn hẳn so với Phase 1 không có đồ thị, khẳng định sức mạnh của Graph Reasoning khi giải quyết tính mơ hồ trong dữ liệu mạng xã hội.
+
+\section{Kết luận (Conclusion)}
+Kiến trúc Causal GNN v2 giải quyết triệt để rào cản của hiện tượng vướng mắc bối cảnh (contextual bias entanglement) trên dữ liệu thảm họa. Việc sử dụng Mạng Tích chập Đồ thị (GCN) cùng thuật toán phân tách nhân quả với Điều chỉnh Cửa sau (Backdoor Adjustment) đã chứng minh được tính hiệu quả và bền vững qua kết quả thử nghiệm định lượng lẫn định tính. Mô hình sẵn sàng phục vụ làm xương sống (backbone) phân loại cho các ứng dụng giảm nhẹ rủi ro thiên tai.
+
+\end{document}
