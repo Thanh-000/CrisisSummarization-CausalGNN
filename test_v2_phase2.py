@@ -100,14 +100,27 @@ def run_phase2_experiment(dataset_path, task, seed, device, epochs=100, k_neighb
         m_samples=m_samples
     )
 
-    # 5. Training Loop
+    # 5. Load Phase 1 Pretrained Weights (CRITICAL: GNN needs stable causal features)
+    phase1_path = f"best_model_{task}.pth" # Logic matching typical saving names
+    if os.path.exists(phase1_path):
+        print(f"  --> Loading Phase 1 Checkpoint: {phase1_path}")
+        model.load_state_dict(torch.load(phase1_path, map_location=device), strict=False)
+    else:
+        # Check alternative common names
+        alt_path = "best_model.pth"
+        if os.path.exists(alt_path):
+             print(f"  --> Loading Alternative Checkpoint: {alt_path}")
+             model.load_state_dict(torch.load(alt_path, map_location=device), strict=False)
+
+    # 6. Training Loop Configuration
+    trainer.config_mode = "C" # C: Causal/Backdoor mode, E: GNN only
     best_test_f1 = 0
     best_test_acc = 0
     patience_counter = 0
     patience_limit = 15
-    trainer.config_mode = "REVAMP"
 
-    print("\n  Starting Training Loop...")
+    print(f"\n  Starting Training Loop (Mode: {trainer.config_mode})...")
+
     for epoch in range(1, epochs + 1):
         train_loss, train_f1 = trainer.train_epoch(train_loader, epoch, use_mixup=False)
         test_loss, test_f1, test_acc = trainer.evaluate(test_loader)

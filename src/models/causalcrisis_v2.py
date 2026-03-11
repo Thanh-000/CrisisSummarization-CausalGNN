@@ -41,34 +41,81 @@ class CausalGNNModule(nn.Module):
         h = self.conv2(h, adj)
         return self.norm(x + h) # Residual connection
 
-class ModalityProjector(nn.Module):
+class GuidedFusion(nn.Module):
     """
-    Stage 2: Modality Disentanglement
-    Tách đặc trưng của mỗi modality thành:
-    - z_general (shared semantics)
-    - z_specific (modality-unique semantics)
+    Stage 2A: Guided Self-Attention + Cross-Attention
     """
-    def __init__(self, in_dim: int, out_dim: int, dropout=0.3):
+    def __init__(self, img_dim: int, txt_dim: int, hidden_dim: int):
         super().__init__()
-        self.general_proj = nn.Sequential(
-            nn.Linear(in_dim, in_dim // 2),
-            nn.LayerNorm(in_dim // 2),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(in_dim // 2, out_dim)
-        )
-        self.specific_proj = nn.Sequential(
-            nn.Linear(in_dim, in_dim // 2),
-            nn.LayerNorm(in_dim // 2),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(in_dim // 2, out_dim)
-        )
+        self.self_attn_img = nn.MultiheadAttention(embed_dim=img_dim, num_heads=4, batch_first=True)
+        self.self_attn_txt = nn.MultiheadAttention(embed_dim=txt_dim, num_heads=4, batch_first=True)
 
-    def forward(self, x: torch.Tensor):
-        z_general = self.general_proj(x)
-        z_specific = self.specific_proj(x)
-        return z_general, z_specific
+        self.proj_I = nn.Linear(img_dim, hidden_dim)
+        self.mask_I = nn.Linear(img_dim, hidden_dim)
+
+        self.proj_T = nn.Linear(txt_dim, hidden_dim)
+        self.mask_T = nn.Linear(txt_dim, hidden_dim)
+        self.act = nn.ReLU()
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, f_I: torch.Tensor, f_T: torch.Tensor):
+        I = f_I.unsqueeze(1)  # [B, 1, D_img]
+        T = f_T.unsqueeze(1)  # [B, 1, D_txt]
+
+        I_sa, _ = self.self_attn_img(I, I, I)
+        T_sa, _ = self.self_attn_txt(T, T, T)
+
+        I_sa = I_sa.squeeze(1)
+        T_sa = T_sa.squeeze(1)
+
+        z_I = self.act(self.proj_I(I_sa))
+        alpha_I = self.sigmoid(self.mask_I(I_sa))
+
+        z_T = self.act(self.proj_T(T_sa))
+        alpha_T = self.sigmoid(self.mask_T(T_sa))
+
+        # Vision-guided text & Text-guided vision
+        v_guided = alpha_T * z_I
+        t_guided = alpha_I * z_T
+
+        z = torch.cat([v_guided, t_guided], dim=-1)
+        return z
+
+
+class DifferentialAttention(nn.Module):
+    """
+    Stage 2B: Differential Attention
+    """
+    def __init__(self, dim_fusion: int, dim_qk: int):
+        super().__init__()
+        self.W_Q = nn.Linear(dim_fusion, 2 * dim_qk)
+        self.W_K = nn.Linear(dim_fusion, 2 * dim_qk)
+        self.W_V = nn.Linear(dim_fusion, dim_qk)
+        self.lambda_param = nn.Parameter(torch.tensor(0.5))
+        self.softmax = nn.Softmax(dim=-1)
+
+    def forward(self, z: torch.Tensor):
+        Q = self.W_Q(z)
+        K = self.W_K(z)
+        V = self.W_V(z)
+
+        Dq = V.size(-1)
+        Q1, Q2 = Q[:, :Dq], Q[:, Dq:]
+        K1, K2 = K[:, :Dq], K[:, Dq:]
+
+        Q1_ = Q1.unsqueeze(1)
+        K1_ = K1.unsqueeze(1)
+        Q2_ = Q2.unsqueeze(1)
+        K2_ = K2.unsqueeze(1)
+        V_  = V.unsqueeze(1)
+
+        attn1 = self.softmax(torch.bmm(Q1_, K1_.transpose(1, 2)) / (Dq ** 0.5))
+        attn2 = self.softmax(torch.bmm(Q2_, K2_.transpose(1, 2)) / (Dq ** 0.5))
+
+        out = (attn1 - self.lambda_param * attn2) @ V_
+        out = out.squeeze(1)
+        return out
+
 
 
 class CausalDisentanglerV2(nn.Module):
@@ -113,6 +160,34 @@ class DomainClassifier(nn.Module):
     def forward(self, x: torch.Tensor):
         return self.net(x)
 
+class EdgeHeterophilyScorer(nn.Module):
+    """
+    Phase 3c: Học mức độ Heterophily (lệch pha) giữa 2 node.
+    Đầu vào: x_i, x_j (causal features) và p_i, p_j (xác suất/pseudo-labels).
+    Đầu ra: Trọng số (0.0 đến 1.0). 1.0 (Homophilic/Tốt), 0.0 (Heterophilic/Rác).
+    """
+    def __init__(self, in_dim: int, num_classes: int, dropout=0.3):
+        super().__init__()
+        # Ghép chênh lệch feature và tương tác phân phối nhãn
+        self.net = nn.Sequential(
+            nn.Linear(in_dim + num_classes, in_dim // 2),
+            nn.LayerNorm(in_dim // 2),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(in_dim // 2, 1)
+        )
+        
+    def forward(self, x_i, x_j, p_i, p_j):
+        feat_diff = torch.abs(x_i - x_j) # Dấu hiệu khác biệt causal
+        prob_sim = p_i * p_j             # Mức độ chung nhãn
+        concat_feat = torch.cat([feat_diff, prob_sim], dim=-1)
+        
+        score = torch.sigmoid(self.net(concat_feat))
+        return score.squeeze(-1)
+
+# ==========================================================
+# CAUSAL CRISIS V2 MODEL MASTER
+# ==========================================================
 class CausalCrisisV2Model(nn.Module):
     """
     CausalCrisis v2 - Phase 1 & 2
@@ -129,16 +204,19 @@ class CausalCrisisV2Model(nn.Module):
                  dropout: float = 0.3):
         super().__init__()
         
-        # Stage 2
-        self.img_proj = ModalityProjector(img_dim, hidden_dim, dropout)
-        self.txt_proj = ModalityProjector(txt_dim, hidden_dim, dropout)
+        # Stage 2: DiffFusionEncoder
+        self.guided_fusion = GuidedFusion(img_dim, txt_dim, hidden_dim)
+        fusion_dim = hidden_dim * 2
+        self.diff_attn = DifferentialAttention(dim_fusion=fusion_dim, dim_qk=fusion_dim)
         
-        # Stage 3A
-        unified_dim = hidden_dim * 2
-        self.causal_disentangle = CausalDisentanglerV2(unified_dim, causal_dim, spurious_dim, dropout)
+        # Stage 3A: Causal Disentangle
+        self.causal_disentangle = CausalDisentanglerV2(fusion_dim, causal_dim, spurious_dim, dropout)
         
         # Stage 3B: GNN Module Phase 2
         self.gnn = CausalGNNModule(causal_dim, causal_dim, dropout)
+        
+        # Stage 3C: Heterophily Scorer (Phase 3c)
+        self.heterophily_scorer = EdgeHeterophilyScorer(causal_dim, num_classes, dropout)
         
         # GRL Discriminator
         self.domain_classifier = DomainClassifier(causal_dim, num_domains)
@@ -162,21 +240,14 @@ class CausalCrisisV2Model(nn.Module):
     def forward(self, img_feat: torch.Tensor, txt_feat: torch.Tensor, adj: torch.Tensor = None, backdoor_xs: torch.Tensor = None):
         outputs = {}
         
-        # Stage 2: Modality Disentangle
-        z_img_g, z_img_s = self.img_proj(img_feat)
-        z_txt_g, z_txt_s = self.txt_proj(txt_feat)
+        # Stage 2: DiffFusionEncoder (GuidedFusion + DiffAttn)
+        z = self.guided_fusion(img_feat, txt_feat)
+        z_prime = self.diff_attn(z)
         
-        outputs["z_img_g"] = z_img_g
-        outputs["z_img_s"] = z_img_s
-        outputs["z_txt_g"] = z_txt_g
-        outputs["z_txt_s"] = z_txt_s
-        
-        # Thống nhất đặc trưng chung (Unified space)
-        z_unified = torch.cat([z_img_g, z_txt_g], dim=-1)
-        outputs["z_unified"] = z_unified
+        outputs["z_unified"] = z_prime
         
         # Stage 3A: Causal Disentangle
-        xc, xs = self.causal_disentangle(z_unified)
+        xc, xs = self.causal_disentangle(z_prime)
         
         outputs["xc"] = xc
         outputs["xs"] = xs

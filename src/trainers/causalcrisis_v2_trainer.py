@@ -161,10 +161,9 @@ class Phase1Trainer:
             out = self.model(img_feat, txt_feat)
             z_unified, xc, xs = out["z_unified"], out["xc"], out["xs"]
             
-            # [A] Orthogonal Loss
-            loss_orth = orthogonal_loss(out["z_img_g"], out["z_img_s"]) + \
-                        orthogonal_loss(out["z_txt_g"], out["z_txt_s"]) + \
-                        orthogonal_loss(xc, xs)
+            # [A] Orthogonal Loss: Đảm bảo X_c (Causal) và X_s (Spurious) tách biệt không gian
+            loss_orth = orthogonal_loss(xc, xs)
+
             
             # [B] SupCon Loss (Tương quan kéo gần cùng nhãn)
             try:
@@ -248,9 +247,10 @@ class Phase1Trainer:
 # 5. K-NN GRAPH & PHASE 2 TRAINER
 # ==========================================================
 
-def build_knn_graph(features: torch.Tensor, k: int=5, drop_edge_p: float=0.0, training: bool=False, temperature: float=0.1) -> torch.Tensor:
+def build_knn_graph(features: torch.Tensor, k: int=5, drop_edge_p: float=0.0, training: bool=False, temperature: float=0.1, pseudo_labels: torch.Tensor=None, heterophily_scorer=None) -> torch.Tensor:
     """
     Tạo ma trận kề (Soft-Attention Graph) dựa trên Top-K Cosine Similarity.
+    [Phase 3c]: Tích hợp EdgeHeterophilyScorer để trừng phạt (penalty) các cạnh dị biệt.
     Sử dụng Softmax để lấy Local Attention thay vì Hard-Edge (1.0/0.0).
     """
     batch_size = features.size(0)
@@ -266,6 +266,22 @@ def build_knn_graph(features: torch.Tensor, k: int=5, drop_edge_p: float=0.0, tr
     if k <= 0: return torch.eye(batch_size, device=features.device)
     
     topk_sim, topk_indices = torch.topk(sim_matrix, k=k, dim=1)
+    
+    # [Phase 3c] - HETEROPHILY PENALTY
+    if heterophily_scorer is not None and pseudo_labels is not None:
+        row_indices = torch.arange(batch_size, device=features.device).view(-1, 1).expand(-1, k)
+        i_idx = row_indices.flatten()
+        j_idx = topk_indices.flatten()
+        
+        # Tính Heterophily Score (0.0: Dị biệt/Spurious, 1.0: Tương đồng/Homophilic)
+        h_score = heterophily_scorer(features[i_idx], features[j_idx], 
+                                     pseudo_labels[i_idx], pseudo_labels[j_idx])
+        h_score = h_score.view(batch_size, k)
+        
+        # Reweight Attention: Cộng logic log(h_score)
+        # Hệ quả Softmax(sim/T + log(h)) = h * exp(sim/T). 
+        # Cạnh nào h_score thấp thì giá trị sau mềm (Softmax) bị bóp chết.
+        topk_sim = topk_sim + temperature * torch.log(h_score + 1e-8)
     
     # GAT-like Softmax Attention Weights
     weights = F.softmax(topk_sim / temperature, dim=1)
@@ -347,6 +363,8 @@ class Phase2Trainer(Phase1Trainer):
         # Khởi tạo Memory Bank lưu Spurious Features để làm Backdoor Intervention
         spurious_dim = model.causal_disentangle.spurious_enc[-1].out_features
         self.memory_bank = MemoryBank(size=memory_size, dim=spurious_dim, device=device)
+        self.current_epoch = 0
+        self.config_mode = "E" # Default Mode: E (GNN-only), C (Causal BA)
 
     def train_epoch(self, dataloader, epoch, use_mixup=False):
         self.model.train()
@@ -366,23 +384,17 @@ class Phase2Trainer(Phase1Trainer):
         config_mode = getattr(self, "config_mode", "E")
         
         if config_mode == "E":
-            enable_backdoor = False # Cắt đứt hoàn toàn Backdoor Adjustment
-            # GNN Weight Ramp Tuyến tính Max=0.2 tại Epoch 15
-            alpha_gnn = min(0.2, 0.2 * (epoch / 15.0))
+            enable_backdoor = False
+            alpha_gnn = min(0.3, 0.3 * (epoch / 20.0))
         elif config_mode == "C":
-            enable_backdoor = epoch >= 10 # Delay BA
-            # Ramp Tuyến tính Max=0.2 tại Epoch 15
-            alpha_gnn = min(0.2, 0.2 * (epoch / 15.0))
+            enable_backdoor = epoch >= 10 
+            alpha_gnn = min(0.4, 0.4 * (epoch / 20.0))
         elif config_mode == "G_ONLY":
             enable_backdoor = False
-            alpha_gnn = 1.0 # FULL GNN POWER
-        elif config_mode == "REVAMP":
-            enable_backdoor = True # Chạy BA liền từ đầu vì đã dọn Linear Classifier rác
-            alpha_gnn = min(0.3, 0.3 * (epoch / 15.0)) # Trọng số GNN an toàn (30% quyền lực)
+            alpha_gnn = 1.0
         else:
             enable_backdoor = epoch >= 20
-            import math
-            alpha_gnn = 0.5 * (1.0 - math.cos(math.pi * min(epoch, 15) / 15.0)) / 2.0
+            alpha_gnn = 0.2
             
         grl_lambda = get_grl_lambda(epoch, self.max_epochs, warmup=self.grl_warmup, max_lambda=0.2)
         
@@ -411,18 +423,24 @@ class Phase2Trainer(Phase1Trainer):
             # --- 2. XÂY GRAPH NẾU ENABLE ---
             adj = None
             if enable_gnn:
+                # [Phase 3c] Dùng Ground-Truth để build Graph tinh khiết lúc Training
+                # model.classifier[-1].out_features chính là số output classes
+                num_classes = self.model.classifier[-1].out_features
+                gt_labels = F.one_hot(labels, num_classes=num_classes).float()
+                
                 adj = build_knn_graph(xc_draft, self.k_neighbors,
                                       drop_edge_p=self.drop_edge_p if enable_dropedge else 0.0,
-                                      training=True)
+                                      training=True,
+                                      pseudo_labels=gt_labels,
+                                      heterophily_scorer=self.model.heterophily_scorer)
                 
             # --- 3. FORWARD CHÍNH THỨC ---
             # training=True -> backdoor_xs = None. Model tự dùng Xs detached của lô hiện tại để build logits_ba
             out = self.model(img_feat, txt_feat, adj=adj, backdoor_xs=None)
             
-            # [A] Phase 1 Losses (Orthogonal, SupCon, ML_Task)
-            loss_orth = orthogonal_loss(out["z_img_g"], out["z_img_s"]) + \
-                        orthogonal_loss(out["z_txt_g"], out["z_txt_s"]) + \
-                        orthogonal_loss(out["xc"], out["xs"])
+            # [A] Phase 1 Losses (Orthogonal Causal/Spurious, SupCon, ML_Task)
+            loss_orth = orthogonal_loss(out["xc"], out["xs"])
+
             
             try:
                 loss_supcon = self.criterion_supcon(out["z_unified"], labels) 
@@ -437,10 +455,12 @@ class Phase2Trainer(Phase1Trainer):
                 loss_task_gnn = self.criterion_cls(out["logits_ba"], labels)
                 preds = torch.argmax(out["logits_ba"], dim=1)
             else:
-                loss_task_gnn = self.criterion_cls(out["logits_gnn"], labels)
                 if enable_gnn:
+                    # SỬA LỖI: Khi không có BA, dùng logits_gnn (chỉ dùng Xc_graph, không cộng Xs)
+                    loss_task_gnn = self.criterion_cls(out["logits_gnn"], labels)
                     preds = torch.argmax(out["logits_gnn"], dim=1)
                 else:
+                    loss_task_gnn = self.criterion_cls(out["logits"], labels)
                     preds = torch.argmax(out["logits"], dim=1)
                 
             # [C] GRL Domain Loss trên Graph Causal Features
@@ -478,7 +498,10 @@ class Phase2Trainer(Phase1Trainer):
         return total_loss / len(dataloader), epoch_f1
 
     @torch.no_grad()
-    def evaluate(self, dataloader):
+    def evaluate(self, dataloader, return_details=False):
+        """
+        Đánh giá mô hình một cách khoa học, nhất quán với config_mode.
+        """
         self.model.eval()
         total_loss = 0
         all_preds = []
@@ -486,18 +509,13 @@ class Phase2Trainer(Phase1Trainer):
         
         epoch = getattr(self, 'current_epoch', 15)
         config_mode = getattr(self, "config_mode", "E")
-        enable_gnn = True
         
-        if config_mode == "E":
-            enable_backdoor = False
-        elif config_mode == "C":
+        if config_mode == "C":
             enable_backdoor = epoch >= 10
-        elif config_mode == "G_ONLY":
-            enable_backdoor = False
-        elif config_mode == "REVAMP":
-            enable_backdoor = True
         else:
             enable_backdoor = False
+            
+        enable_gnn = True 
         
         for batch in dataloader:
             if len(batch) == 4:
@@ -505,33 +523,25 @@ class Phase2Trainer(Phase1Trainer):
             else:
                 img_feat, txt_feat, labels = [b.to(self.device) for b in batch]
                 
-            out_draft = self.model(img_feat, txt_feat)
-            
-            # Nếu chưa enable GNN thì bỏ qua adj tạo graph
-            adj = None
-            if enable_gnn:
-                adj = build_knn_graph(out_draft["xc"], self.k_neighbors, drop_edge_p=0.0, training=False)
+            out_pre = self.model(img_feat, txt_feat)
+            adj = build_knn_graph(out_pre["xc"], self.k_neighbors, drop_edge_p=0.0, training=False)
             
             if enable_backdoor:
-                # Backdoor Adjustment trong lúc Test
                 backdoor_xs = None
                 if self.memory_bank.is_full or self.memory_bank.ptr > 0:
                     bank_samples = self.memory_bank.sample(M=self.m_samples)
                     backdoor_xs = bank_samples.unsqueeze(0).expand(img_feat.size(0), self.m_samples, -1)
                 else:
-                    backdoor_xs = out_draft["xs"].unsqueeze(1)
+                    backdoor_xs = out_pre["xs"].unsqueeze(1)
                     
                 out = self.model(img_feat, txt_feat, adj=adj, backdoor_xs=backdoor_xs)
-                loss = self.criterion_cls(out["logits_ba"], labels)
-                preds = torch.argmax(out["logits_ba"], dim=1)
+                logits = out["logits_ba"]
             else:
                 out = self.model(img_feat, txt_feat, adj=adj, backdoor_xs=None)
-                if enable_gnn:
-                    loss = self.criterion_cls(out["logits_gnn"], labels)
-                    preds = torch.argmax(out["logits_gnn"], dim=1)
-                else:
-                    loss = self.criterion_cls(out["logits"], labels)
-                    preds = torch.argmax(out["logits"], dim=1)
+                logits = out.get("logits_gnn", out["logits"])
+                
+            loss = self.criterion_cls(logits, labels)
+            preds = torch.argmax(logits, dim=1)
             
             total_loss += loss.item()
             all_preds.extend(preds.cpu().numpy())
@@ -539,4 +549,9 @@ class Phase2Trainer(Phase1Trainer):
             
         bAcc = accuracy_score(all_targets, all_preds)
         f1 = f1_score(all_targets, all_preds, average='weighted')
+        
+        if return_details:
+            return total_loss / len(dataloader), f1, bAcc, np.array(all_preds), np.array(all_targets)
+            
         return total_loss / len(dataloader), f1, bAcc
+
