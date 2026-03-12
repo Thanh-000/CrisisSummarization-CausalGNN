@@ -180,13 +180,14 @@ Hệ thống được thiết kế theo tư tưởng \textbf{Curriculum Learning
 \subsection{Hệ thống Hàm Mất Mát (Loss Functions)}
 Sự phân tách $X_c$ và $X_s$ được giám sát thông qua hàm mất mát tổng hợp của 4 luồng đạo hàm chính:
 \begin{equation}
-\mathcal{L}_{Total} = \alpha_1 \mathcal{L}_{Task} + \alpha_2 \mathcal{L}_{SupCon} + \alpha_3 \mathcal{L}_{Orth} + \alpha_4 \mathcal{L}_{Graph}
+\mathcal{L}_{Total} = \alpha_1 \mathcal{L}_{Task} + \alpha_2 \mathcal{L}_{Orth} + \alpha_3 \mathcal{L}_{Cross} + \alpha_4 \mathcal{L}_{GCL}
 \end{equation}
 Trong đó:
 \begin{itemize}
-    \item $\mathcal{L}_{Task}$ đào tạo nhánh Nhân quả bằng Cross-Entropy (sau Graph Layers).
-    \item $\mathcal{L}_{SupCon}$ (Supervised Contrastive Loss) học ranh giới phương thức chặt chẽ.
-    \item $\mathcal{L}_{Orth}$ (Orthogonal Loss) giữ tính trực giao cho không gian $X_c$ và $X_s$.
+    \item $\mathcal{L}_{Task}$ đào tạo nhánh Nhân quả bằng hàm Cross-Entropy (sau khối Graph Layers).
+    \item $\mathcal{L}_{Orth}$ (Orthogonal Loss) ép buộc tính trực giao cho không gian $X_c$ và $X_s$.
+    \item $\mathcal{L}_{Cross}$ (Cross-Modal Alignment Loss) căn chỉnh song hành đặc trưng Văn bản - Hình ảnh.
+    \item $\mathcal{L}_{GCL}$ (Graph Contrastive Loss) kháng nhiễu loạn cấu trúc cho đồ thị qua Drop-Edge và Node-Masking.
 \end{itemize}
 Đặc biệt, Mạng đối nghịch Gradient Reversal Layer (GRL) được cài cắm ở nhánh Classifier của $X_c$ để đánh lừa Domain Discriminator, chính thức ép buộc điều kiện cực kỳ khắt khe: $(X_c \perp \text{Domain})$.
 
@@ -203,22 +204,29 @@ Sự khác biệt của Causal GNN v2 không chỉ nằm ở mảng tĩnh (kiế
  \tcp{========= PHASE 1: WARM-UP ROUND =========}
  \For{$epoch \leftarrow 1$ \KwTo $15$}{
   \For{minibatch $(v, t, y) \in \mathcal{D}$}{
-   $z_{unified} \leftarrow \text{Concat}(\text{ModalityProj}(v, t))$\;
+   $z_{img\_g}, z_{txt\_g} \leftarrow \text{ModalityProj}(v, t)$\;
+   Tính \textbf{Cross-Modal InfoNCE Loss} $\mathcal{L}_{Cross}(z_{img\_g}, z_{txt\_g})$\;
+   $z_{unified} \leftarrow \text{Concat}(z_{img\_g}, z_{txt\_g})$\;
    $X_c, X_s \leftarrow \text{CausalDisentangle}(z_{unified})$\;
    \tcp{Dự đoán cục bộ không qua Đồ thị (I.I.D)}
    $\text{Logits} \leftarrow \text{Classifier}(X_c)$\; 
-   Tối ưu hóa tham số với loss tổng hợp $\mathcal{L}_{Total}$\;
+   Tính $\mathcal{L}_{Task}, \mathcal{L}_{Orth}$ và hồi tiếp tổng $\mathcal{L}_{Total}$\;
   }
  }
  \tcp{========= PHASE 2: GRAPH ENHANCEMENT \& MEMORY =========}
  \For{$epoch \leftarrow 16$ \KwTo $40$}{
   \For{minibatch $(v, t, y) \in \mathcal{D}$}{
-   Trích xuất $X_c, X_s$ tương tự Phase 1\;
+   Trích xuất $X_c, X_s$ và tính $\mathcal{L}_{Cross}$ vòng lặp trước\;
    $\text{MemoryBank}.\text{Push}(X_s)$ \tcp*{Thu thập phân phối Context}
-   $\tilde{A} \leftarrow \text{HeterophilyScorer}(X_c)$ \tcp*{Xây ma trận kề sạch}
+   $\tilde{A} \leftarrow \text{HeterophilyScorer}(X_c)$ \tcp*{Xây ma trận kề $k$-NN}
+   \tcp{Khởi tạo Graph Augmentation}
+   $V_1 \leftarrow \text{DropEdge}(\tilde{A})$ \textbf{and} $V_2 \leftarrow \text{DropNode}(X_c)$\;
+   $Z_1 \leftarrow \text{GraphSAGE}(V_2, \tilde{A})$ \textbf{and} $Z_2 \leftarrow \text{GraphSAGE}(X_c, V_1)$\;
+   Tính \textbf{Graph Contrastive Loss} $\mathcal{L}_{GCL}(Z_1, Z_2)$\;
+   \tcp{Dự đoán chính (Main Stream)}
    $X_c^{graph} \leftarrow \text{GraphSAGE}(X_c, \tilde{A})$ \tcp*{Giao tiếp láng giềng}
    $\text{Logits} \leftarrow \text{Classifier}(X_c^{graph})$\;
-   Tối ưu hóa các lớp đồ thị và phân loại\;
+   Lan truyền ngược với toàn bộ tổn thất $\mathcal{L}_{Total}$\;
   }
  }
  \tcp{========= PHASE 3: CAUSAL INFERENCE (BACKDOOR) =========}
