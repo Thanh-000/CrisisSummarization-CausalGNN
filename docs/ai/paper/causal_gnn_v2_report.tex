@@ -255,7 +255,8 @@ Nghiên cứu sử dụng bộ dữ liệu chuẩn mực \textbf{CrisisMMD v2.0}
 \end{enumerate}
 
 \subsection{Thông số Kỹ thuật \& Thước đo Đánh giá (Metrics)}
-Để đảm bảo tính công bằng trên dữ liệu thảm họa luôn bị mất cân bằng trầm trọng, nghiên cứu không sử dụng Accuracy thông thường. Hai thước đo chính được lựa chọn là \textbf{Weighted F1-Score} và \textbf{Balanced Accuracy} (Trung bình cộng recall của các lớp). 
+Để đảm bảo tính công bằng trên dữ liệu thảm họa luôn bị mất cân bằng trầm trọng, nghiên cứu không sử dụng Accuracy thông thường. Ba thước đo chính được lựa chọn là \textbf{Weighted F1-Score}, \textbf{Balanced Accuracy} (Trung bình cộng recall của các lớp), và \textbf{AUC-ROC} (Area Under the Receiver Operating Characteristic Curve). AUC-ROC đặc biệt quan trọng để đánh giá khả năng phân biệt giữa các lớp của mô hình bất chấp sự chênh lệch số lượng mẫu, một lợi thế lớn của phương pháp Contrastive Learning được đề xuất.
+
 Hệ thống được huấn luyện cấu hình \textit{Batch Size = 32}, sử dụng bộ tối ưu \textit{AdamW}. Một chiến lược học tập phân mảnh (Differential Learning Rate) được áp dụng: $lr=2\times10^{-5}$ cho toàn bộ bộ trích xuất (backbone) và MLP, trong khi mạng GraphSAGE có $lr_g=1\times10^{-4}$ giúp đồ thị ưu tiên hội tụ nhánh liên kết.
 
 \section{Kết quả Thực nghiệm (Experimental Results)}
@@ -269,14 +270,17 @@ Quá trình dự đoán được thử nghiệm đánh giá chéo trên bộ Cri
         \toprule
         \textbf{Phân loại Tác vụ} & \textbf{Metric} & \textbf{Mean $\pm$ Std} \\
         \midrule
-        \multirow{2}{*}{\textbf{Task 1: Tính Hữu ích (Informative)}} & Weighted F1 & $0.8235 \pm 0.0027$ \\
+        \multirow{3}{*}{\textbf{Task 1: Tính Hữu ích (Informative)}} & Weighted F1 & $0.8235 \pm 0.0027$ \\
                                                                     & Balanced Acc & $0.8213 \pm 0.0022$ \\
+                                                                    & \textbf{AUC-ROC} & TBD \\
         \midrule
-        \multirow{2}{*}{\textbf{Task 2: Phân loại Nhân đạo (Humanitarian)}}& \textbf{Weighted F1} & $\mathbf{0.6697 \pm 0.0010}$ \\
+        \multirow{3}{*}{\textbf{Task 2: Phân loại Nhân đạo (Humanitarian)}}& \textbf{Weighted F1} & $\mathbf{0.6697 \pm 0.0010}$ \\
                                                                     & \textbf{Balanced Acc} & $\mathbf{0.6613 \pm 0.0011}$ \\
+                                                                    & \textbf{AUC-ROC} & TBD \\
         \midrule
-        \multirow{2}{*}{\textbf{Task 3: Thiệt hại Vật chất (Damage)}}    & Weighted F1 & $0.6974 \pm 0.0049$ \\
+        \multirow{3}{*}{\textbf{Task 3: Thiệt hại Vật chất (Damage)}}    & Weighted F1 & $0.6974 \pm 0.0049$ \\
                                                                     & Balanced Acc & $0.6900 \pm 0.0046$ \\
+                                                                    & \textbf{AUC-ROC} & TBD \\
         \bottomrule
     \end{tabular}
 \end{table}
