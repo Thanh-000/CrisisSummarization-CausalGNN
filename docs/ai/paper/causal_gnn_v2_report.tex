@@ -167,11 +167,11 @@ Nhờ đó, khi một trong hai phương thức bị hỏng, phương thức cò
 Cả hai View được tổng hợp qua GraphSAGE để sinh ra $Z_1$ và $Z_2$. Một hàm Contrastive Loss khác tiếp tục được áp dụng lên ($Z_1, Z_2$) nhằm ép thuật toán lan truyền (Message Passing) phải học được đặc tính bất biến hệ thống: Dù mạng lưới bị đứt gãy, GraphSAGE vẫn phải phán đoán đúng bản chất sự kiện.
 
 \subsection{Cơ chế Điều chỉnh Cửa sau (Backdoor Adjustment)}
-Để xóa bỏ "Đường dẫn cửa sau" do các yếu tố nhiễu (Confounders) gây ra, Causal GNN v2 duy trì một \textbf{Spurious Memory Bank} dung lượng 2000 phần tử (chứa $X_s$ từ các batch trước). Trong quá trình Đánh giá (Inference), định lý Backdoor Adjustment được mô phỏng bằng phép lấy mẫu ngẫu nhiên (Monte Carlo Sampling) với $N=50$:
+Để xóa bỏ "Đường dẫn cửa sau" do các yếu tố nhiễu (Confounders) gây ra, Causal GNN v2 duy trì một \textbf{Spurious Memory Bank} dung lượng 2000 phần tử (chứa $X_s$ từ các batch trước). Trong quá trình Đánh giá (Inference), định lý Backdoor Adjustment được mô phỏng bằng phép lấy mẫu ngẫu nhiên (Monte Carlo Sampling) với $N=128$:
 \begin{equation}
-\text{Logits}_{ba} = \frac{1}{N} \sum_{i=1}^{N} \text{Classifier}(X_c^{graph} + x_s^{(i)})
+\text{Logits}_{ba} = \log \left( \frac{1}{128} \sum_{i=1}^{128} \text{Softmax}(\text{Classifier}(X_c^{graph} + x_s^{(i)})) \right)
 \end{equation}
-Việc ghép ghép Nhân quả ($X_c^{graph}$) của mẫu hiện tại với các bối cảnh $x_s$ bất kỳ hoàn toàn trung hòa ảnh hưởng của bối cảnh, trả về phân phối xác suất thuần túy.
+Việc ghép ghép Nhân quả ($X_c^{graph}$) của mẫu hiện tại với các bối cảnh $x_s$ bất kỳ hoàn toàn trung hòa ảnh hưởng của bối cảnh, trả về phân phối xác suất thuần túy theo phương pháp tính toán xác suất (Probabilistic Averaging).
 
 \section{Chiến lược Huấn luyện (Training Pipeline)}
 
@@ -206,10 +206,10 @@ Sự khác biệt của Causal GNN v2 không chỉ nằm ở mảng tĩnh (kiế
   \For{minibatch $(v, t, y) \in \mathcal{D}$}{
    $z_{img\_g}, z_{txt\_g} \leftarrow \text{ModalityProj}(v, t)$\;
    Tính \textbf{Cross-Modal InfoNCE Loss} $\mathcal{L}_{Cross}(z_{img\_g}, z_{txt\_g})$\;
-   $z_{unified} \leftarrow \text{Concat}(z_{img\_g}, z_{txt\_g})$\;
-   $X_c, X_s \leftarrow \text{CausalDisentangle}(z_{unified})$\;
-   \tcp{Dự đoán cục bộ không qua Đồ thị (I.I.D)}
-   $\text{Logits} \leftarrow \text{Classifier}(X_c)$\; 
+    $z_{unified} \leftarrow \text{CrossModalAttention}(z_{img\_g}, z_{txt\_g})$\;
+    $X_c, X_s \leftarrow \text{CausalDisentangle}(z_{unified})$\;
+    \tcp{Dự đoán cục bộ không qua Đồ thị (I.I.D)}
+    $\text{Logits} \leftarrow \text{Classifier}(X_c)$\; 
    Tính $\mathcal{L}_{Task}, \mathcal{L}_{Orth}$ và hồi tiếp tổng $\mathcal{L}_{Total}$\;
   }
  }
@@ -232,17 +232,17 @@ Sự khác biệt của Causal GNN v2 không chỉ nằm ở mảng tĩnh (kiế
  \tcp{========= PHASE 3: CAUSAL INFERENCE (BACKDOOR) =========}
  \For{minibatch thử nghiệm $(v', t') \in \mathcal{D}_{Test}$}{
     Trích xuất $X_c'^{graph}$ bằng mô hình hoàn chỉnh\;
-    Khởi tạo $List\_Probs \leftarrow []$\;
-    \For{$n \leftarrow 1$ \KwTo $50$}{
-        $x_s^{(n)} \sim \text{MemoryBank}$ \tcp*{Lấy mẫu ngẫu nhiên $X_s$}
-        $P_n = \text{Softmax}(\text{Classifier}(X_c'^{graph} + x_s^{(n)}))$\;
-        $List\_Probs.\text{Append}(P_n)$\;
-    }
-    $\text{Robust\_Logits} = \log\left(\frac{1}{50} \sum_{n=1}^{50} List\_Probs[n] \right)$\;
+     Khởi tạo $List\_Probs \leftarrow []$\;
+     \For{$n \leftarrow 1$ \KwTo $128$}{
+         $x_s^{(n)} \sim \text{MemoryBank}$ \tcp*{Lấy mẫu ngẫu nhiên $X_s$}
+         $P_n = \text{Softmax}(\text{Classifier}(X_c'^{graph} + x_s^{(n)}))$\;
+         $List\_Probs.\text{Append}(P_n)$\;
+     }
+     $\text{Robust\_Logits} = \log\left(\frac{1}{128} \sum_{n=1}^{128} List\_Probs[n] + 1e-9 \right)$\;
  }
 \end{algorithm}
 
-Thuật toán trên giải quyết dứt điểm tính phi cấu trúc (Unstructured properties) của dữ liệu rác. Nhờ cơ chế Đóng/Mở Đồ thị (Phase 1 sang Phase 2), không gian $X_c$ đủ cứng cáp thì mới được đưa đi cấu trúc hóa quan hệ láng giềng. Bước Inference cực đại hóa nguyên lý Nhân quả bằng cách "ném" mẫu cần test $X_c'^{graph}$ vào 50 biển nhiễu (bias) khác nhau để trung bình hóa cảm nhận bề mặt.
+Thuật toán trên giải quyết dứt điểm tính phi cấu trúc (Unstructured properties) của dữ liệu rác. Nhờ cơ chế Đóng/Mở Đồ thị (Phase 1 sang Phase 2), không gian $X_c$ đủ cứng cáp thì mới được đưa đi cấu trúc hóa quan hệ láng giềng. Bước Inference cực đại hóa nguyên lý Nhân quả bằng cách "ném" mẫu cần test $X_c'^{graph}$ vào 128 biển nhiễu (bias) khác nhau để trung bình hóa cảm nhận bề mặt.
 
 \section{Thiết lập Thực nghiệm (Experimental Setup)}
 
@@ -270,13 +270,13 @@ Quá trình dự đoán được thử nghiệm đánh giá chéo trên bộ Cri
         \toprule
         \textbf{Phân loại Tác vụ} & \textbf{Metric} & \textbf{Mean $\pm$ Std} \\
         \midrule
-        \multirow{3}{*}{\textbf{Task 1: Tính Hữu ích (Informative)}} & Weighted F1 & $0.8235 \pm 0.0027$ \\
-                                                                    & Balanced Acc & $0.8213 \pm 0.0022$ \\
-                                                                    & \textbf{AUC-ROC} & TBD \\
+        \multirow{3}{*}{\textbf{Task 1: Tính Hữu ích (Informative)}} & Weighted F1 & $0.8223 \pm 0.0021$ \\
+                                                                    & Balanced Acc & $0.8193 \pm 0.0022$ \\
+                                                                    & \textbf{AUC-ROC} & $0.8799 \pm 0.0008$ \\
         \midrule
-        \multirow{3}{*}{\textbf{Task 2: Phân loại Nhân đạo (Humanitarian)}}& \textbf{Weighted F1} & $\mathbf{0.6697 \pm 0.0010}$ \\
-                                                                    & \textbf{Balanced Acc} & $\mathbf{0.6613 \pm 0.0011}$ \\
-                                                                    & \textbf{AUC-ROC} & TBD \\
+        \multirow{3}{*}{\textbf{Task 2: Phân loại Nhân đạo (Humanitarian)}}& Weighted F1 & $0.6817 \pm 0.0076$ \\
+                                                                    & Balanced Acc & $0.6835$ \\
+                                                                    & \textbf{AUC-ROC} & $0.8872$ \\
         \midrule
         \multirow{3}{*}{\textbf{Task 3: Thiệt hại Vật chất (Damage)}}    & Weighted F1 & $0.6974 \pm 0.0049$ \\
                                                                     & Balanced Acc & $0.6900 \pm 0.0046$ \\

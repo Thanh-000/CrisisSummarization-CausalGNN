@@ -1,0 +1,141 @@
+# Research State — CausalCrisis V3
+# Updated by agent after each experiment and reflection.
+
+project:
+  title: "CausalCrisis V3: Per-Modality Causal Disentanglement for Multimodal Crisis Classification"
+  question: "Can per-modality causal disentanglement with cross-modal causal fusion achieve >90% F1 on CrisisMMD while generalizing to unseen disasters?"
+  status: active
+  started: "2026-03-19"
+  domain: "multimodal causal classification for crisis/disaster"
+
+literature:
+  key_papers:
+    - id: "camo-ma2025"
+      title: "CAMO: Causality-Guided Adversarial Multimodal Domain Generalization"
+      authors: "Ma et al."
+      year: 2025
+      relevance: "Direct competitor — adversarial causal disentanglement but uses VGG+BERT, joint disentangle"
+    - id: "crisisspot-dar2025"
+      title: "CrisisSpot: Multimodal Learning and Attention for Crisis Detection"
+      authors: "Dar et al."
+      year: 2025
+      venue: "ESWA (Q1)"
+      relevance: "Current SOTA on CrisisMMD (90.9% F1) but no causal theory"
+    - id: "cirl-lv2022"
+      title: "CIRL: Causality Inspired Representation Learning"
+      authors: "Lv et al."
+      year: 2022
+      venue: "CVPR Oral"
+      relevance: "SCM + intervention for image-only domain generalization"
+    - id: "inper-tang2024"
+      title: "InPer: Invariant Perception for Image-Only DG"
+      authors: "Tang et al."
+      year: 2024
+      venue: "BMVC"
+      relevance: "Causal intervention for single-modality"
+    - id: "seeberger2025"
+      title: "Counterfactual Bias Mitigation for Crisis Events"
+      authors: "Seeberger et al."
+      year: 2025
+      venue: "AACL-IJCNLP"
+      relevance: "Counterfactual for text-only crisis"
+    - id: "causal-clip-adapter-2025"
+      title: "Causal CLIP Adapter: ICA Disentanglement for Few-Shot"
+      authors: "Jiang et al."
+      year: 2025
+      relevance: "NEW — ICA-based disentanglement of CLIP features, outperforms SOTA on 11 benchmarks"
+    - id: "clip-dca-2025"
+      title: "Domain Generalization in-the-Wild: CLIP-DCA"
+      authors: "2025"
+      relevance: "Domain-aware CLIP representations via disentanglement"
+    - id: "iclr2025-multimodal-causal"
+      title: "Causal Representation Learning from Multimodal Biomedical Observations"
+      authors: "Sun et al."
+      year: 2025
+      venue: "ICLR Poster"
+      relevance: "Structural sparsity for multimodal identifiability theory"
+    - id: "moraffah2022-causal-fusion"
+      title: "Causal Data Fusion for Multi-modal Disaster Classification"
+      authors: "Moraffah et al."
+      year: 2022
+      venue: "SBP-BRiMS"
+      relevance: "Pioneer in causal graph for multimodal crisis"
+  open_problems:
+    - "No existing work combines per-modality causal disentanglement + cross-modal C_vt for crisis"
+    - "CCA (2025) uses ICA for disentanglement but not applied to crisis domain"
+    - "CAMO uses VGG+BERT with joint disentangle — per-modality + CLIP is untested"
+    - "Backdoor adjustment not tested with CLIP features in crisis classification"
+  evidence_gaps:
+    - "Whether ICA-based disentanglement (CCA) is better than adversarial (ours) for crisis data"
+    - "Optimal balance between C_v, C_t, C_vt dimensions"
+    - "Whether graph propagation on causal features helps when CLIP features are strong"
+
+hypotheses:
+  - id: H1
+    statement: "CLIP ViT-L/14 frozen features achieve >88% F1 with simple MLP on CrisisMMD Task 1"
+    status: pending
+    motivation: "Establish strong baseline before adding complexity"
+    parent: null
+    priority: high
+
+  - id: H2
+    statement: "Per-modality disentanglement (adversarial + orthogonal) improves F1 by ≥1.5% over MLP baseline"
+    status: pending
+    motivation: "Core architectural contribution — validate causal disentanglement value"
+    parent: H1
+    priority: high
+
+  - id: H3
+    statement: "Cross-modal causal factor C_vt adds ≥1% F1 beyond per-modality disentanglement alone"
+    status: pending
+    motivation: "Novel contribution — cross-modal information emerges only from combining modalities"
+    parent: H2
+    priority: high
+
+  - id: H4
+    statement: "Backdoor adjustment at inference improves F1 by ≥0.5% and LODO F1 by ≥2%"
+    status: pending
+    motivation: "Causal intervention should help most for domain generalization (LODO)"
+    parent: H3
+    priority: medium
+
+  - id: H5
+    statement: "ICA-based disentanglement (CCA-style) outperforms adversarial disentanglement for crisis CLIP features"
+    status: pending
+    motivation: "NEW from literature — CCA (2025) showed ICA better for CLIP few-shot"
+    parent: H2
+    priority: medium
+
+  - id: H6
+    statement: "Full CausalCrisis V3 achieves >91% F1 (surpassing CrisisSpot 90.9%)"
+    status: pending
+    motivation: "Core research target — prove architecture is superior"
+    parent: H3
+    priority: high
+
+  - id: H7
+    statement: "Supervised contrastive loss on causal features improves cross-domain generalization by ≥1.5%"
+    status: pending
+    motivation: "Pull same-class causal features together, push apart across classes"
+    parent: H2
+    priority: medium
+
+experiments:
+  proxy_metric: "Weighted F1 on CrisisMMD Task 1 (Informative)"
+  baseline_value: null
+  best_value: null
+  total_runs: 0
+  trajectory: []
+
+outer_loop:
+  cycle: 0
+  last_direction: null
+  last_reflection: ""
+
+workspace:
+  findings: "findings.md"
+  log: "research-log.md"
+  literature_dir: "literature/"
+  experiments_dir: "experiments/"
+  to_human_dir: "to_human/"
+  paper_dir: "paper/"
