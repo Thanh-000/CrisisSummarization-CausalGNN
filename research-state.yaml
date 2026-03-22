@@ -164,10 +164,18 @@ experiments:
       change_summary: "V4 notebook created with 5 experiments (A1,A2,B1,B2,C1), checkpoint resume, dual LLaVA encoding. Ready to run on Colab A100."
       timestamp: "2026-03-22T19:55:00"
 
+    - run_id: "v4_architecture_refactor"
+      hypothesis: "infrastructure"
+      metric_value: null
+      delta: null
+      wall_time_min: 30
+      change_summary: "Full 3-phase refactor: V4 components integrated into src/ (GCA, 3ModalClassifier, GenericTrainer, V4Config), V3 archived to models_v3.py/losses_v3.py, notebook imports from src/ (-27% LOC). Package v4.0.0."
+      timestamp: "2026-03-22T20:25:00"
+
 outer_loop:
-  cycle: 1
-  last_direction: "pivot"
-  last_reflection: "V3 architecture fundamentally flawed. Frozen features are the bottleneck, not architecture. Must add LLaVA captions and/or LoRA. PIVOT to V4."
+  cycle: 2
+  last_direction: "refactor"
+  last_reflection: "V4 architecture refactored. src/ package now V4-ready (v4.0.0). Notebook uses GenericTrainer with src/ imports. Next: run experiments on Colab."
 
 workspace:
   findings: "findings.md"
@@ -176,3 +184,4 @@ workspace:
   experiments_dir: "experiments/"
   to_human_dir: "to_human/"
   paper_dir: "paper/"
+
