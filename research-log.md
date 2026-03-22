@@ -18,3 +18,4 @@ Chronological record of research decisions and actions. Append-only.
 | 12 | 2026-03-22 | pivot | **PIVOT to V4:** Drop per-modality disentanglement. Add LLaVA captions + Guided CA. Keep causal story for LODO. |
 | 13 | 2026-03-22 | outer-loop | **DIRECTION: PIVOT** — New research question: Can causal disentanglement add value on TOP of LLaVA-enriched features? |
 | 14 | 2026-03-22 | bootstrap | Formed 7 hypotheses (H1-H7). Priority: H1 (LLaVA), H2 (Guided CA), H6 (full pipeline) |
+| 15 | 2026-03-22 | inner-loop | V4 experiment notebook created: 5 experiments (A1: concat 2-modal, A2: GCA 2-modal, B1: concat 3-modal, B2: GCA 3-modal, C1: GCA separate encoding). Includes: checkpoint resume for LLaVA, dual encoding strategy (combined vs separate), official CrisisMMD splits. Ready for Colab A100 execution. |

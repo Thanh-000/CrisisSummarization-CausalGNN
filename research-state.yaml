@@ -79,11 +79,12 @@ literature:
 hypotheses:
   - id: H1
     statement: "Adding LLaVA captions as third modality will boost frozen CLIP baseline from 78% to 88%+ F1"
-    status: pending
+    status: running
     motivation: "Munia et al. showed CLIP+LLaVA = 92.89% F1w. Even without fancy fusion, LLaVA adds rich contextual info."
     parent: null
     priority: high
     prediction: "88-90% F1w with concat+MLP, 91%+ with Guided CA"
+    notebook: "notebooks/CausalCrisis_V4_LLaVA_Experiment.ipynb"
 
   - id: H2
     statement: "Guided Cross-Attention (Munia-style) outperforms our CrossAttentionFusion on seq_len=1 vectors"
@@ -154,6 +155,14 @@ experiments:
       wall_time_min: 25
       change_summary: "Full V3 with adapter+disentangle+GRL+SupCon. No significant improvement."
       timestamp: "2026-03-22T15:00:00"
+
+    - run_id: "v4_notebook_ready"
+      hypothesis: "H1+H2"
+      metric_value: null
+      delta: null
+      wall_time_min: 0
+      change_summary: "V4 notebook created with 5 experiments (A1,A2,B1,B2,C1), checkpoint resume, dual LLaVA encoding. Ready to run on Colab A100."
+      timestamp: "2026-03-22T19:55:00"
 
 outer_loop:
   cycle: 1
