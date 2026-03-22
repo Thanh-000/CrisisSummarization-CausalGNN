@@ -213,19 +213,20 @@ print("🤖 LLaVA Caption Generation")
 print("=" * 60)
 
 LLAVA_CACHE = os.path.join(CACHE_DIR, "llava_captions.json")
+LLAVA_CHECKPOINT = os.path.join(CACHE_DIR, "llava_captions_checkpoint.json")
 
 if os.path.exists(LLAVA_CACHE):
-    print(f"📦 Loading cached LLaVA captions from {LLAVA_CACHE}")
+    print(f"Loading cached LLaVA captions from {LLAVA_CACHE}")
     with open(LLAVA_CACHE, "r", encoding="utf-8") as f:
         llava_captions = json.load(f)
     print(f"   Loaded {len(llava_captions)} captions")
 else:
-    print("🔄 Generating LLaVA captions (this takes 2-4 hours on A100)...")
+    print("Generating LLaVA captions (this takes 2-4 hours on A100)...")
     
     from transformers import LlavaNextProcessor, LlavaNextForConditionalGeneration
     from PIL import Image
     
-    # Dùng LLaVA-Next (LLaVA-1.6) — nhẹ hơn và chất lượng tốt
+    # Dùng LLaVA-Next (LLaVA-1.6) — nhe hon va chat luong tot
     MODEL_ID = "llava-hf/llava-v1.6-mistral-7b-hf"
     
     print(f"   Loading model: {MODEL_ID}")
@@ -234,10 +235,10 @@ else:
         MODEL_ID,
         torch_dtype=torch.float16,
         device_map="auto",
-        load_in_4bit=True,  # 4-bit quantization để tiết kiệm VRAM
+        load_in_4bit=True,  # 4-bit quantization de tiet kiem VRAM
     )
     
-    # Prompt tối ưu cho crisis classification
+    # Prompt toi uu cho crisis classification
     LLAVA_PROMPT = (
         "[INST] <image>\n"
         "Describe this social media image in detail. "
@@ -247,12 +248,23 @@ else:
         "Be specific and factual. [/INST]"
     )
     
-    llava_captions = {}
+    # Resume from checkpoint neu co
+    if os.path.exists(LLAVA_CHECKPOINT):
+        with open(LLAVA_CHECKPOINT, "r", encoding="utf-8") as f:
+            llava_captions = json.load(f)
+        print(f"   Resuming from checkpoint: {len(llava_captions)} captions done")
+    else:
+        llava_captions = {}
+    
     total = len(data)
     batch_errors = 0
     start_time = time.time()
     
     for idx in range(total):
+        # Skip neu da co trong checkpoint
+        if str(idx) in llava_captions:
+            continue
+        
         image_path = data.iloc[idx]["image_path"]
         
         try:
@@ -272,7 +284,7 @@ else:
                     temperature=1.0,
                 )
             
-            # Decode — chỉ lấy phần generated (bỏ prompt)
+            # Decode — chi lay phan generated (bo prompt)
             generated = processor.decode(
                 output_ids[0][inputs["input_ids"].shape[1]:],
                 skip_special_tokens=True,
@@ -281,30 +293,38 @@ else:
             llava_captions[str(idx)] = generated
             
         except Exception as e:
-            # Fallback: dùng tweet text gốc nếu LLaVA lỗi
+            # Fallback: dung tweet text goc neu LLaVA loi
             llava_captions[str(idx)] = str(data.iloc[idx].get("text", ""))
             batch_errors += 1
         
+        # Checkpoint moi 500 anh
         if (idx + 1) % 500 == 0:
+            with open(LLAVA_CHECKPOINT, "w", encoding="utf-8") as f:
+                json.dump(llava_captions, f, ensure_ascii=False)
             elapsed = time.time() - start_time
-            rate = (idx + 1) / elapsed
-            remaining = (total - idx - 1) / rate / 60
-            print(f"   [{idx+1}/{total}] {rate:.1f} img/s, ~{remaining:.0f}min remaining, errors={batch_errors}")
+            done = sum(1 for k in llava_captions if k.isdigit())
+            rate = max(done, 1) / max(elapsed, 1)
+            remaining = (total - done) / max(rate, 0.01) / 60
+            print(f"   [{done}/{total}] {rate:.1f} img/s, ~{remaining:.0f}min remaining, errors={batch_errors}")
     
-    # Cache lưu lại
+    # Save final cache
     with open(LLAVA_CACHE, "w", encoding="utf-8") as f:
         json.dump(llava_captions, f, ensure_ascii=False, indent=2)
     
+    # Remove checkpoint file
+    if os.path.exists(LLAVA_CHECKPOINT):
+        os.remove(LLAVA_CHECKPOINT)
+    
     elapsed = time.time() - start_time
-    print(f"\n✅ Generated {len(llava_captions)} captions in {elapsed/60:.1f} min")
+    print(f"\nGenerated {len(llava_captions)} captions in {elapsed/60:.1f} min")
     print(f"   Errors: {batch_errors}/{total}")
     
-    # Giải phóng model
+    # Giai phong model
     del llava_model, processor
     torch.cuda.empty_cache()
 
 # Spot-check
-print("\n📋 Caption examples:")
+print("\nCaption examples:")
 for i in range(min(3, len(llava_captions))):
     idx_str = str(i)
     caption = llava_captions.get(idx_str, "N/A")
@@ -320,15 +340,20 @@ print("\n" + "=" * 60)
 print("🔄 Encoding LLaVA captions with CLIP")
 print("=" * 60)
 
-LLAVA_FEAT_CACHE = os.path.join(CACHE_DIR, "clip_ViT-L_14_llava_text.npy")
+# Two encoding strategies:
+# Strategy A (Munia-style): concat tweet + caption -> CLIP text encode
+# Strategy B (Separate):    caption only -> CLIP text encode (3rd independent modality)
+# We cache both for ablation.
 
-if os.path.exists(LLAVA_FEAT_CACHE):
-    print(f"📦 Loading cached LLaVA CLIP features")
-    llava_features = np.load(LLAVA_FEAT_CACHE)
-else:
+LLAVA_FEAT_COMBINED = os.path.join(CACHE_DIR, "clip_ViT-L_14_llava_combined.npy")
+LLAVA_FEAT_SEPARATE = os.path.join(CACHE_DIR, "clip_ViT-L_14_llava_only.npy")
+
+need_encode = not os.path.exists(LLAVA_FEAT_COMBINED) or not os.path.exists(LLAVA_FEAT_SEPARATE)
+
+if need_encode:
     import open_clip
     
-    print("🔄 Encoding LLaVA captions with CLIP ViT-L/14 text encoder...")
+    print("Encoding LLaVA captions with CLIP ViT-L/14 text encoder...")
     
     clip_model, _, _ = open_clip.create_model_and_transforms(
         "ViT-L-14", pretrained="openai"
@@ -336,45 +361,63 @@ else:
     tokenizer = open_clip.get_tokenizer("ViT-L-14")
     clip_model = clip_model.to(DEVICE).eval()
     
-    # Munia et al. strategy: concatenate tweet text + LLaVA caption
-    # Sau đó encode bằng CLIP text encoder
-    all_llava_feats = []
+    all_combined_feats = []
+    all_separate_feats = []
     batch_size = 64
     total = len(data)
     
     for start in range(0, total, batch_size):
         end = min(start + batch_size, total)
         
-        # Concatenate tweet + LLaVA caption (giống Munia et al.)
         combined_texts = []
+        caption_only_texts = []
         for idx in range(start, end):
             tweet = str(data.iloc[idx].get("text", ""))
             caption = llava_captions.get(str(idx), "")
-            # Format: "Tweet: {tweet} Description: {caption}"
-            combined = f"{tweet} [SEP] {caption}"
-            combined_texts.append(combined)
+            # Strategy A: Munia-style concat
+            combined_texts.append(f"{tweet} [SEP] {caption}")
+            # Strategy B: caption only
+            caption_only_texts.append(caption if caption else tweet)
         
-        tokens = tokenizer(combined_texts).to(DEVICE)
+        # Encode combined
+        tokens_combined = tokenizer(combined_texts).to(DEVICE)
+        tokens_separate = tokenizer(caption_only_texts).to(DEVICE)
         
         with torch.no_grad():
-            feats = clip_model.encode_text(tokens)
-            feats = feats / feats.norm(dim=-1, keepdim=True)  # L2 normalize
+            feats_c = clip_model.encode_text(tokens_combined)
+            feats_c = feats_c / feats_c.norm(dim=-1, keepdim=True)
+            feats_s = clip_model.encode_text(tokens_separate)
+            feats_s = feats_s / feats_s.norm(dim=-1, keepdim=True)
         
-        all_llava_feats.append(feats.cpu().numpy())
+        all_combined_feats.append(feats_c.cpu().numpy())
+        all_separate_feats.append(feats_s.cpu().numpy())
         
         if (start // batch_size + 1) % 50 == 0:
             print(f"   Batch {start//batch_size + 1}/{(total + batch_size - 1)//batch_size}")
     
-    llava_features = np.concatenate(all_llava_feats)
-    np.save(LLAVA_FEAT_CACHE, llava_features)
+    llava_combined = np.concatenate(all_combined_feats)
+    llava_separate = np.concatenate(all_separate_feats)
+    np.save(LLAVA_FEAT_COMBINED, llava_combined)
+    np.save(LLAVA_FEAT_SEPARATE, llava_separate)
     
     del clip_model
     torch.cuda.empty_cache()
+else:
+    print("Loading cached LLaVA CLIP features")
+    llava_combined = np.load(LLAVA_FEAT_COMBINED)
+    llava_separate = np.load(LLAVA_FEAT_SEPARATE)
 
-print(f"✅ LLaVA features: {llava_features.shape}")
-print(f"   Mean: {llava_features.mean():.6f}")
-print(f"   Std:  {llava_features.std():.6f}")
-print(f"   L2 norms: mean={np.linalg.norm(llava_features, axis=1).mean():.4f}")
+# Default: use combined (Munia-style) for main experiments
+llava_features = llava_combined
+
+print(f"LLaVA combined features: {llava_combined.shape}")
+print(f"LLaVA separate features: {llava_separate.shape}")
+print(f"   Combined L2 norms: mean={np.linalg.norm(llava_combined, axis=1).mean():.4f}")
+print(f"   Separate L2 norms: mean={np.linalg.norm(llava_separate, axis=1).mean():.4f}")
+
+# Cosine similarity giua combined vs original text features
+cos_sim = np.sum(llava_combined * text_features, axis=1).mean()
+print(f"   Cosine sim (combined vs original text): {cos_sim:.4f}")
 
 # %%
 # ============================================================================
@@ -911,11 +954,51 @@ for seed in SEEDS:
 b2_f1 = np.mean([r["test_metrics"]["f1_weighted"] for r in b2_results])
 b2_std = np.std([r["test_metrics"]["f1_weighted"] for r in b2_results])
 all_results["B2_guidedca_3modal"] = b2_results
-print(f"\n✅ B2 Average: F1w = {b2_f1:.4f} ± {b2_std:.4f}")
+print(f"\n B2 Average: F1w = {b2_f1:.4f} +/- {b2_std:.4f}")
 
 # %%
 # ============================================================================
-# CELL 12: Results Summary & Comparison 📊
+# CELL 11b: Experiment C — LLaVA Encoding Ablation (Combined vs Separate)
+# ============================================================================
+print("\n" + "=" * 70)
+print("Experiment C: LLaVA Encoding Ablation")
+print("   Combined (tweet+caption concat) vs Separate (caption only)")
+print("=" * 70)
+
+# Build loaders with SEPARATE LLaVA features (caption-only encoding)
+loaders_separate = create_3modal_loaders(
+    image_features, text_features, llava_separate,
+    labels, train_indices, val_indices, test_indices,
+    batch_size=BATCH_SIZE,
+)
+
+# --- C1: Guided CA (3-modal) + LLaVA separate ---
+print("\n--- C1: Guided CA + LLaVA (caption-only encoding) ---")
+c1_results = []
+for seed in SEEDS:
+    model = ThreeModalityClassifier(
+        feat_dim=768, num_classes=2, dropout=0.2,
+        use_guided_ca=True, use_llava=True,
+    )
+    result = run_experiment(
+        "C1: GCA + LLaVA-separate", model, loaders_separate,
+        epochs=50, lr=3e-4, patience=7, use_llava=True, seed=seed,
+    )
+    c1_results.append(result)
+
+c1_f1 = np.mean([r["test_metrics"]["f1_weighted"] for r in c1_results])
+c1_std = np.std([r["test_metrics"]["f1_weighted"] for r in c1_results])
+all_results["C1_guidedca_separate"] = c1_results
+print(f"\n C1 Average: F1w = {c1_f1:.4f} +/- {c1_std:.4f}")
+
+print(f"\n--- LLaVA Encoding Ablation ---")
+print(f"   Combined (Munia-style): {b2_f1:.4f} +/- {b2_std:.4f}")
+print(f"   Separate (caption-only): {c1_f1:.4f} +/- {c1_std:.4f}")
+print(f"   Delta: {b2_f1 - c1_f1:+.4f}")
+
+# %%
+# ============================================================================
+# CELL 12: Results Summary & Comparison
 # ============================================================================
 print("\n" + "=" * 70)
 print("📊 RESULTS SUMMARY")
