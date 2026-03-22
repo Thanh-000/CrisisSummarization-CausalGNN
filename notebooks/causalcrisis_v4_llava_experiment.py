@@ -114,18 +114,27 @@ elif IN_COLAB:
 if IN_COLAB:
     sys.path.insert(0, PROJECT_DIR)
 
-# Import project modules  
-from src.config import get_config, CausalCrisisConfig
+# Import project modules (V4 refactored)
+from src.config import V4Config, get_config
 from src.data import (
     load_crisismmd_annotations,
     extract_and_cache_clip_features,
     CrisisMMDDataset,
+    CrisisMMD3ModalDataset,
     create_dataloaders,
+    create_3modal_loaders,
     compute_class_weights,
 )
+from src.models import (
+    GuidedCrossAttention,
+    ThreeModalityClassifier,
+    CLIPMLPBaseline,
+)
+from src.losses import FocalLoss
+from src.trainer import GenericTrainer
 
-config = get_config("task1")
-print(f"✅ Config loaded: {config.experiment_name}")
+config = get_config("task1", version="v4")
+print(f"✅ Config loaded: {config.experiment_name} (v4)")
 
 # %%
 # ============================================================================
@@ -421,242 +430,22 @@ print(f"   Cosine sim (combined vs original text): {cos_sim:.4f}")
 
 # %%
 # ============================================================================
-# CELL 7: Model Definitions 🆕
+# CELL 7: Model & Training Setup (imported from src/) ✅
 # ============================================================================
 print("\n" + "=" * 60)
-print("🏗️ Model Definitions")
+print("🏗️ Models & Training — imported from src/")
 print("=" * 60)
 
+# Models, losses, datasets, trainer — all imported from src/ (no duplicates!)
+# GuidedCrossAttention, ThreeModalityClassifier → src.models
+# FocalLoss → src.losses
+# CrisisMMD3ModalDataset, create_3modal_loaders → src.data
+# GenericTrainer → src.trainer
 
-class GuidedCrossAttention(nn.Module):
-    """
-    Guided Cross-Attention (Munia et al., CVPRw 2025)
-    
-    Khác với standard cross-attention:
-    1. Self-attention trước để refine mỗi modality
-    2. Projection + Sigmoid mask (không phải softmax)
-    3. Cross-guidance: mask_A * proj_B (không phải attention weights)
-    
-    Ưu điểm: hoạt động tốt kể cả với seq_len=1 (không bị degenerate)
-    """
-    
-    def __init__(self, d_model: int = 768, dropout: float = 0.1):
-        super().__init__()
-        
-        # Self-attention cho mỗi modality
-        self.self_attn_v = nn.Linear(d_model, d_model)
-        self.self_attn_t = nn.Linear(d_model, d_model)
-        
-        # Projection layers
-        self.proj_v = nn.Linear(d_model, d_model)
-        self.proj_t = nn.Linear(d_model, d_model)
-        
-        # Sigmoid masks (key difference vs standard attention)
-        self.mask_v = nn.Sequential(nn.Linear(d_model, d_model), nn.Sigmoid())
-        self.mask_t = nn.Sequential(nn.Linear(d_model, d_model), nn.Sigmoid())
-        
-        # Layer norms
-        self.ln_v = nn.LayerNorm(d_model)
-        self.ln_t = nn.LayerNorm(d_model)
-        
-        self.dropout = nn.Dropout(dropout)
-    
-    def forward(self, f_v: torch.Tensor, f_t: torch.Tensor) -> torch.Tensor:
-        """
-        Args:
-            f_v: (B, D) — visual features
-            f_t: (B, D) — text features
-        Returns:
-            z_fused: (B, 2*D) — concatenated cross-guided features
-        """
-        # Step 1: Self-attention refinement
-        v_refined = self.ln_v(f_v + torch.relu(self.self_attn_v(f_v)))
-        t_refined = self.ln_t(f_t + torch.relu(self.self_attn_t(f_t)))
-        
-        # Step 2: Projections
-        z_v = torch.relu(self.proj_v(v_refined))
-        z_t = torch.relu(self.proj_t(t_refined))
-        
-        # Step 3: Sigmoid attention masks
-        alpha_v = self.mask_v(v_refined)  # (B, D) — visual attention mask
-        alpha_t = self.mask_t(t_refined)  # (B, D) — text attention mask
-        
-        # Step 4: Cross-guidance
-        # Visual mask guides text features, text mask guides visual features
-        guided_v = alpha_t * z_v  # Text guides vision
-        guided_t = alpha_v * z_t  # Vision guides text
-        
-        # Step 5: Concatenate
-        z_fused = torch.cat([
-            self.dropout(guided_v),
-            self.dropout(guided_t),
-        ], dim=-1)  # (B, 2*D)
-        
-        return z_fused
-
-
-class ThreeModalityClassifier(nn.Module):
-    """
-    3-Modality classifier: CLIP image + CLIP text + LLaVA-enriched text
-    Với optional Guided Cross-Attention fusion.
-    """
-    
-    def __init__(
-        self,
-        feat_dim: int = 768,
-        num_classes: int = 2,
-        dropout: float = 0.2,
-        use_guided_ca: bool = True,
-        use_llava: bool = True,
-    ):
-        super().__init__()
-        self.use_guided_ca = use_guided_ca
-        self.use_llava = use_llava
-        
-        if use_guided_ca:
-            # Guided CA cho image ↔ text
-            self.guided_ca_vt = GuidedCrossAttention(feat_dim, dropout=dropout * 0.5)
-            
-            if use_llava:
-                # Guided CA cho fused ↔ llava
-                self.guided_ca_llava = GuidedCrossAttention(feat_dim, dropout=dropout * 0.5)
-                # Fused projection: 2*D (from CA) → D
-                self.fuse_proj = nn.Sequential(
-                    nn.Linear(feat_dim * 2, feat_dim),
-                    nn.LayerNorm(feat_dim),
-                    nn.GELU(),
-                )
-                # Classifier input = 2*D (from second CA)
-                classifier_input = feat_dim * 2
-            else:
-                classifier_input = feat_dim * 2
-        else:
-            # Simple concatenation
-            if use_llava:
-                classifier_input = feat_dim * 3  # image + text + llava
-            else:
-                classifier_input = feat_dim * 2  # image + text
-        
-        self.classifier = nn.Sequential(
-            nn.Linear(classifier_input, 512),
-            nn.LayerNorm(512),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(512, 256),
-            nn.LayerNorm(256),
-            nn.GELU(),
-            nn.Dropout(dropout * 0.5),
-            nn.Linear(256, num_classes),
-        )
-        
-        # Print architecture info
-        n_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
-        mode = "Guided CA" if use_guided_ca else "Concat"
-        modalities = "3-modal (img+txt+llava)" if use_llava else "2-modal (img+txt)"
-        print(f"   Architecture: {mode} | {modalities} | {n_params:,} params")
-    
-    def forward(
-        self,
-        f_v: torch.Tensor,
-        f_t: torch.Tensor,
-        f_llava: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
-        if self.use_guided_ca:
-            # Guided CA fusion: image ↔ text
-            z_vt = self.guided_ca_vt(f_v, f_t)  # (B, 2*D)
-            
-            if self.use_llava and f_llava is not None:
-                # Project fused to D for second CA
-                z_vt_proj = self.fuse_proj(z_vt)  # (B, D)
-                # Second Guided CA: fused ↔ llava
-                z_final = self.guided_ca_llava(z_vt_proj, f_llava)  # (B, 2*D)
-            else:
-                z_final = z_vt
-        else:
-            # Simple concatenation
-            if self.use_llava and f_llava is not None:
-                z_final = torch.cat([f_v, f_t, f_llava], dim=-1)
-            else:
-                z_final = torch.cat([f_v, f_t], dim=-1)
-        
-        return self.classifier(z_final)
-
-
-# %%
-# ============================================================================
-# CELL 8: Dataset & DataLoader (3-modality) 🆕
-# ============================================================================
-print("\n" + "=" * 60)
-print("📦 Creating 3-modality DataLoaders")
-print("=" * 60)
-
-
-class CrisisMMD3ModalDataset(Dataset):
-    """Dataset hỗ trợ 3 modalities: image + text + llava."""
-    
-    def __init__(
-        self,
-        image_features: np.ndarray,
-        text_features: np.ndarray,
-        llava_features: Optional[np.ndarray],
-        labels: np.ndarray,
-        indices: Optional[np.ndarray] = None,
-    ):
-        if indices is not None:
-            self.image_features = torch.FloatTensor(image_features[indices])
-            self.text_features = torch.FloatTensor(text_features[indices])
-            self.labels = torch.LongTensor(labels[indices])
-            if llava_features is not None:
-                self.llava_features = torch.FloatTensor(llava_features[indices])
-            else:
-                self.llava_features = None
-        else:
-            self.image_features = torch.FloatTensor(image_features)
-            self.text_features = torch.FloatTensor(text_features)
-            self.labels = torch.LongTensor(labels)
-            if llava_features is not None:
-                self.llava_features = torch.FloatTensor(llava_features)
-            else:
-                self.llava_features = None
-    
-    def __len__(self):
-        return len(self.labels)
-    
-    def __getitem__(self, idx):
-        item = {
-            "image_features": self.image_features[idx],
-            "text_features": self.text_features[idx],
-            "label": self.labels[idx],
-        }
-        if self.llava_features is not None:
-            item["llava_features"] = self.llava_features[idx]
-        return item
-
-
-def create_3modal_loaders(
-    image_feats, text_feats, llava_feats,
-    labels, train_idx, val_idx, test_idx,
-    batch_size=32,
-):
-    """Tạo DataLoaders cho 3 modality experiment."""
-    loaders = {}
-    
-    for name, idx, shuffle in [
-        ("train", train_idx, True),
-        ("val", val_idx, False),
-        ("test", test_idx, False),
-    ]:
-        ds = CrisisMMD3ModalDataset(
-            image_feats, text_feats, llava_feats, labels, idx
-        )
-        loaders[name] = DataLoader(
-            ds, batch_size=batch_size, shuffle=shuffle,
-            num_workers=2, pin_memory=True,
-            drop_last=(name == "train"),
-        )
-    
-    return loaders
-
+print("   ✅ GuidedCrossAttention (Munia et al. CVPRw 2025)")
+print("   ✅ ThreeModalityClassifier (2/3-modal, concat/GCA)")
+print("   ✅ FocalLoss (with label_smoothing)")
+print("   ✅ GenericTrainer (run_experiment)")
 
 # Tạo loaders
 BATCH_SIZE = 32  # Munia et al. dùng 32
@@ -670,193 +459,11 @@ loaders_3modal = create_3modal_loaders(
 for name, loader in loaders_3modal.items():
     print(f"   {name}: {len(loader.dataset)} samples, {len(loader)} batches")
 
-# %%
-# ============================================================================
-# CELL 9: Training Function (Reusable) 🆕
-# ============================================================================
-print("\n" + "=" * 60)
-print("🚀 Training Functions")
-print("=" * 60)
+# Khởi tạo trainer và loss
+trainer = GenericTrainer(device=DEVICE)
+loss_fn = FocalLoss(alpha=class_weights, gamma=2.0, label_smoothing=0.05)
 
-
-class FocalLoss(nn.Module):
-    """Focal Loss cho class imbalance."""
-    def __init__(self, alpha=None, gamma=2.0, label_smoothing=0.05):
-        super().__init__()
-        self.alpha = alpha
-        self.gamma = gamma
-        self.label_smoothing = label_smoothing
-    
-    def forward(self, inputs, targets):
-        ce = F.cross_entropy(
-            inputs, targets,
-            weight=self.alpha.to(inputs.device) if self.alpha is not None else None,
-            reduction='none',
-            label_smoothing=self.label_smoothing,
-        )
-        pt = torch.exp(-ce)
-        return (((1 - pt) ** self.gamma) * ce).mean()
-
-
-def train_one_epoch(model, loader, optimizer, loss_fn, device, use_llava=True):
-    """Train 1 epoch."""
-    model.train()
-    total_loss = 0
-    all_preds, all_labels = [], []
-    
-    for batch in loader:
-        f_v = batch["image_features"].to(device)
-        f_t = batch["text_features"].to(device)
-        labels = batch["label"].to(device)
-        f_llava = batch.get("llava_features")
-        if f_llava is not None and use_llava:
-            f_llava = f_llava.to(device)
-        else:
-            f_llava = None
-        
-        logits = model(f_v, f_t, f_llava)
-        loss = loss_fn(logits, labels)
-        
-        optimizer.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-        optimizer.step()
-        
-        total_loss += loss.item()
-        all_preds.extend(logits.argmax(-1).detach().cpu().numpy())
-        all_labels.extend(labels.cpu().numpy())
-    
-    f1 = f1_score(all_labels, all_preds, average="weighted")
-    return total_loss / len(loader), f1
-
-
-@torch.no_grad()
-def evaluate(model, loader, loss_fn, device, use_llava=True):
-    """Evaluate model."""
-    model.eval()
-    total_loss = 0
-    all_preds, all_labels, all_probs = [], [], []
-    
-    for batch in loader:
-        f_v = batch["image_features"].to(device)
-        f_t = batch["text_features"].to(device)
-        labels = batch["label"].to(device)
-        f_llava = batch.get("llava_features")
-        if f_llava is not None and use_llava:
-            f_llava = f_llava.to(device)
-        else:
-            f_llava = None
-        
-        logits = model(f_v, f_t, f_llava)
-        loss = loss_fn(logits, labels)
-        
-        total_loss += loss.item()
-        all_preds.extend(logits.argmax(-1).cpu().numpy())
-        all_labels.extend(labels.cpu().numpy())
-        all_probs.extend(torch.softmax(logits, -1).cpu().numpy())
-    
-    metrics = {
-        "loss": total_loss / len(loader),
-        "f1_weighted": f1_score(all_labels, all_preds, average="weighted"),
-        "f1_macro": f1_score(all_labels, all_preds, average="macro"),
-        "accuracy": accuracy_score(all_labels, all_preds),
-        "balanced_acc": balanced_accuracy_score(all_labels, all_preds),
-        "preds": np.array(all_preds),
-        "labels": np.array(all_labels),
-    }
-    return metrics
-
-
-def run_experiment(
-    model_name: str,
-    model: nn.Module,
-    loaders: dict,
-    epochs: int = 50,
-    lr: float = 1e-3,
-    weight_decay: float = 0.01,
-    patience: int = 7,
-    use_llava: bool = True,
-    seed: int = 42,
-):
-    """Run full training + evaluation experiment."""
-    # Reproducibility
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-    
-    model = model.to(DEVICE)
-    
-    # Munia et al. dùng SGD, nhưng AdamW thường tốt hơn cho small datasets
-    optimizer = torch.optim.AdamW(
-        model.parameters(), lr=lr, weight_decay=weight_decay
-    )
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=epochs, eta_min=1e-6
-    )
-    loss_fn = FocalLoss(alpha=class_weights, gamma=2.0, label_smoothing=0.05)
-    
-    best_val_f1 = 0
-    best_epoch = 0
-    no_improve = 0
-    history = {"train_loss": [], "val_loss": [], "train_f1": [], "val_f1": []}
-    
-    for epoch in range(epochs):
-        train_loss, train_f1 = train_one_epoch(
-            model, loaders["train"], optimizer, loss_fn, DEVICE, use_llava
-        )
-        val_metrics = evaluate(model, loaders["val"], loss_fn, DEVICE, use_llava)
-        scheduler.step()
-        
-        history["train_loss"].append(train_loss)
-        history["val_loss"].append(val_metrics["loss"])
-        history["train_f1"].append(train_f1)
-        history["val_f1"].append(val_metrics["f1_weighted"])
-        
-        improved = val_metrics["f1_weighted"] > best_val_f1
-        if improved:
-            best_val_f1 = val_metrics["f1_weighted"]
-            best_epoch = epoch
-            best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
-            no_improve = 0
-        else:
-            no_improve += 1
-        
-        if epoch % 5 == 0 or improved:
-            marker = " ✅" if improved else ""
-            print(
-                f"  Epoch {epoch:3d} | "
-                f"Train: loss={train_loss:.4f} F1={train_f1:.4f} | "
-                f"Val: F1w={val_metrics['f1_weighted']:.4f} "
-                f"F1m={val_metrics['f1_macro']:.4f}{marker}"
-            )
-        
-        if no_improve >= patience:
-            print(f"  ⏹️ Early stopping at epoch {epoch} (patience={patience})")
-            break
-    
-    # Load best model & evaluate on test
-    model.load_state_dict(best_state)
-    model = model.to(DEVICE)
-    test_metrics = evaluate(model, loaders["test"], loss_fn, DEVICE, use_llava)
-    
-    print(f"\n{'─' * 50}")
-    print(f"  {model_name} — RESULTS (best epoch {best_epoch}):")
-    print(f"  Val  F1w={best_val_f1:.4f}")
-    print(f"  Test F1w={test_metrics['f1_weighted']:.4f} "
-          f"F1m={test_metrics['f1_macro']:.4f} "
-          f"BAcc={test_metrics['balanced_acc']:.4f}")
-    print(f"{'─' * 50}")
-    
-    return {
-        "model_name": model_name,
-        "best_val_f1": best_val_f1,
-        "best_epoch": best_epoch,
-        "test_metrics": test_metrics,
-        "history": history,
-        "model_state": best_state,
-    }
-
-
-print("✅ Training functions defined")
+print("\n✅ Training setup ready")
 
 # %%
 # ============================================================================
@@ -878,8 +485,8 @@ for seed in SEEDS:
         feat_dim=768, num_classes=2, dropout=0.2,
         use_guided_ca=False, use_llava=False,
     )
-    result = run_experiment(
-        "A1: Concat+MLP (2-modal)", model, loaders_3modal,
+    result = trainer.run_experiment(
+        "A1: Concat+MLP (2-modal)", model, loaders_3modal, loss_fn,
         epochs=50, lr=3e-4, patience=7, use_llava=False, seed=seed,
     )
     a1_results.append(result)
@@ -897,8 +504,8 @@ for seed in SEEDS:
         feat_dim=768, num_classes=2, dropout=0.2,
         use_guided_ca=True, use_llava=False,
     )
-    result = run_experiment(
-        "A2: Guided CA (2-modal)", model, loaders_3modal,
+    result = trainer.run_experiment(
+        "A2: Guided CA (2-modal)", model, loaders_3modal, loss_fn,
         epochs=50, lr=3e-4, patience=7, use_llava=False, seed=seed,
     )
     a2_results.append(result)
@@ -926,8 +533,8 @@ for seed in SEEDS:
         feat_dim=768, num_classes=2, dropout=0.2,
         use_guided_ca=False, use_llava=True,
     )
-    result = run_experiment(
-        "B1: Concat+MLP (3-modal)", model, loaders_3modal,
+    result = trainer.run_experiment(
+        "B1: Concat+MLP (3-modal)", model, loaders_3modal, loss_fn,
         epochs=50, lr=3e-4, patience=7, use_llava=True, seed=seed,
     )
     b1_results.append(result)
@@ -945,8 +552,8 @@ for seed in SEEDS:
         feat_dim=768, num_classes=2, dropout=0.2,
         use_guided_ca=True, use_llava=True,
     )
-    result = run_experiment(
-        "B2: Guided CA (3-modal) ⭐", model, loaders_3modal,
+    result = trainer.run_experiment(
+        "B2: Guided CA (3-modal) ⭐", model, loaders_3modal, loss_fn,
         epochs=50, lr=3e-4, patience=7, use_llava=True, seed=seed,
     )
     b2_results.append(result)
@@ -980,8 +587,8 @@ for seed in SEEDS:
         feat_dim=768, num_classes=2, dropout=0.2,
         use_guided_ca=True, use_llava=True,
     )
-    result = run_experiment(
-        "C1: GCA + LLaVA-separate", model, loaders_separate,
+    result = trainer.run_experiment(
+        "C1: GCA + LLaVA-separate", model, loaders_separate, loss_fn,
         epochs=50, lr=3e-4, patience=7, use_llava=True, seed=seed,
     )
     c1_results.append(result)
