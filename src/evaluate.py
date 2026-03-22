@@ -123,8 +123,9 @@ def run_lodo_evaluation(
     Leave-One-Disaster-Out evaluation.
     Train trên N-1 disasters, test trên 1.
     """
-    from .data import create_lodo_splits, CrisisMMDDataset, create_stratified_splits
+    from .data import create_lodo_splits, CrisisMMDDataset
     from torch.utils.data import DataLoader
+    from sklearn.model_selection import train_test_split
     
     if seeds is None:
         seeds = [42, 123, 456]
@@ -145,17 +146,23 @@ def run_lodo_evaluation(
             # Get LODO split
             train_idx, test_idx = create_lodo_splits(domain_ids, domain_id)
             
-            # Create val split from training data
+            # Create val split from training data.
+            # Prefer stratified split by class label; fallback to random when
+            # rare classes make strict stratification impossible.
             train_labels = labels[train_idx]
-            train_domains = domain_ids[train_idx]
-            sub_train_idx, sub_val_idx, _ = create_stratified_splits(
-                train_labels, train_domains,
-                test_ratio=0.001,  # tiny, just for splitting
-                val_ratio=0.15,
-                seed=seed,
-            )
-            actual_train = train_idx[sub_train_idx]
-            actual_val = train_idx[sub_val_idx]
+            try:
+                actual_train, actual_val = train_test_split(
+                    train_idx,
+                    test_size=0.15,
+                    stratify=train_labels,
+                    random_state=seed,
+                )
+            except ValueError:
+                actual_train, actual_val = train_test_split(
+                    train_idx,
+                    test_size=0.15,
+                    random_state=seed,
+                )
             
             # DataLoaders
             train_ds = CrisisMMDDataset(
@@ -200,7 +207,7 @@ def run_lodo_evaluation(
             
             metrics = compute_metrics(np.array(all_labels), np.array(all_preds))
             
-            results[domain_name].append(metrics["f1_weighted"])
+            results[domain_name].append(float(metrics["f1_weighted"]))
             print(f"   → F1={metrics['f1_weighted']:.4f}")
     
     # Summary
@@ -215,8 +222,8 @@ def run_lodo_evaluation(
         all_f1s.extend(f1_list)
         print(f"   {domain_name}: F1 = {mean_f1:.4f} ± {std_f1:.4f}")
     
-    overall_mean = np.mean(all_f1s)
-    overall_std = np.std(all_f1s)
+    overall_mean = float(np.mean(all_f1s)) if all_f1s else 0.0
+    overall_std = float(np.std(all_f1s)) if all_f1s else 0.0
     print(f"\n   OVERALL: F1 = {overall_mean:.4f} ± {overall_std:.4f}")
     
     return {
@@ -261,9 +268,9 @@ def run_ablation_study(
             f1_scores.append(metrics["f1_weighted"])
         
         results[name] = {
-            "f1_mean": np.mean(f1_scores),
-            "f1_std": np.std(f1_scores),
-            "f1_scores": f1_scores,
+            "f1_mean": float(np.mean(f1_scores)),
+            "f1_std": float(np.std(f1_scores)),
+            "f1_scores": [float(x) for x in f1_scores],
         }
         
         print(f"   → F1 = {results[name]['f1_mean']:.4f} ± {results[name]['f1_std']:.4f}")

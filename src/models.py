@@ -1,6 +1,6 @@
 # ============================================================================
 # CausalCrisis V3 — Core Model Modules
-# Bao gồm: Hybrid Disentangler, CrossModal Fusion, Classifier, BackdoorAdj
+# Bao gồm: CLIP Adapter, Hybrid Disentangler, CrossModal Fusion, Classifier, BA
 # ============================================================================
 
 import torch
@@ -9,6 +9,50 @@ import torch.nn.functional as F
 import numpy as np
 import random
 from typing import Optional, Tuple, Dict
+
+
+# ============================================================================
+# CLIP Task Adapter — Domain-Specific Feature Adaptation 🆕
+# ============================================================================
+class CLIPTaskAdapter(nn.Module):
+    """
+    Lightweight residual adapter cho frozen CLIP features.
+    
+    Motivation: Frozen CLIP features chỉ đạt ~79% F1 trên CrisisMMD (domain gap).
+    Adapter học task-specific transformation mà vẫn giữ general knowledge qua residual.
+    
+    Architecture:
+        x → MLP(dim → bottleneck → dim) → adapter_out
+        output = (1 - ratio) * x + ratio * adapter_out
+    
+    Reference: CLIP-Adapter (Gao et al., 2024)
+    """
+    
+    def __init__(
+        self,
+        dim: int = 768,
+        bottleneck: int = 128,
+        residual_ratio: float = 0.2,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        self.adapter = nn.Sequential(
+            nn.Linear(dim, bottleneck),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(bottleneck, dim),
+        )
+        self.ratio = residual_ratio
+        self.ln = nn.LayerNorm(dim)
+        
+        # Khởi tạo near-zero để ban đầu output ≈ input
+        nn.init.zeros_(self.adapter[-1].weight)
+        nn.init.zeros_(self.adapter[-1].bias)
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        adapted = self.adapter(x)
+        out = (1 - self.ratio) * x + self.ratio * adapted
+        return self.ln(out)
 
 
 # ============================================================================
@@ -352,8 +396,28 @@ class CausalCrisisV3(nn.Module):
         fusion_type: str = "cross_attention",
         grl_lambda_max: float = 1.0,
         grl_warmup_epochs: int = 10,
+        # 🆕 Adapter settings
+        use_adapter: bool = True,
+        adapter_bottleneck: int = 128,
+        adapter_residual_ratio: float = 0.2,
     ):
         super().__init__()
+        
+        # 🆕 Stage 1.5: Task-specific feature adaptation
+        self.use_adapter = use_adapter
+        if use_adapter:
+            self.image_adapter = CLIPTaskAdapter(
+                dim=input_dim,
+                bottleneck=adapter_bottleneck,
+                residual_ratio=adapter_residual_ratio,
+                dropout=dropout,
+            )
+            self.text_adapter = CLIPTaskAdapter(
+                dim=input_dim,
+                bottleneck=adapter_bottleneck,
+                residual_ratio=adapter_residual_ratio,
+                dropout=dropout,
+            )
         
         # Stage 2: Per-modality disentanglement
         self.visual_disentangler = HybridDisentangler(
@@ -419,6 +483,11 @@ class CausalCrisisV3(nn.Module):
         Returns:
             dict with keys: logits, C_v, C_t, S_v, S_t, C_vt, domain_logits_v, domain_logits_t
         """
+        # 🆕 Stage 1.5: Adapt frozen CLIP features to task domain
+        if self.use_adapter:
+            f_v = self.image_adapter(f_v)
+            f_t = self.text_adapter(f_t)
+        
         # Stage 2: Disentangle
         C_v, S_v = self.visual_disentangler(f_v)
         C_t, S_t = self.text_disentangler(f_t)
@@ -470,15 +539,40 @@ class CausalCrisisV3(nn.Module):
 # MLP Baseline (for H1 experiment)
 # ============================================================================
 class CLIPMLPBaseline(nn.Module):
-    """Simple MLP baseline trên CLIP features (no causal)."""
+    """
+    MLP baseline trên CLIP features (no causal).
+    🆕 Với optional adapter cho fair comparison.
+    """
     
     def __init__(
         self,
         input_dim: int = 1536,  # 768 + 768 (concat image + text)
         num_classes: int = 2,
-        dropout: float = 0.2
+        dropout: float = 0.2,
+        # 🆕 Adapter settings
+        use_adapter: bool = False,
+        adapter_bottleneck: int = 128,
+        adapter_residual_ratio: float = 0.2,
     ):
         super().__init__()
+        feat_dim = input_dim // 2  # 768 per modality
+        
+        # 🆕 Optional adapters
+        self.use_adapter = use_adapter
+        if use_adapter:
+            self.image_adapter = CLIPTaskAdapter(
+                dim=feat_dim,
+                bottleneck=adapter_bottleneck,
+                residual_ratio=adapter_residual_ratio,
+                dropout=dropout * 0.5,
+            )
+            self.text_adapter = CLIPTaskAdapter(
+                dim=feat_dim,
+                bottleneck=adapter_bottleneck,
+                residual_ratio=adapter_residual_ratio,
+                dropout=dropout * 0.5,
+            )
+        
         self.head = nn.Sequential(
             nn.Linear(input_dim, 512),
             nn.LayerNorm(512),
@@ -492,5 +586,8 @@ class CLIPMLPBaseline(nn.Module):
         )
     
     def forward(self, f_v: torch.Tensor, f_t: torch.Tensor) -> torch.Tensor:
+        if self.use_adapter:
+            f_v = self.image_adapter(f_v)
+            f_t = self.text_adapter(f_t)
         combined = torch.cat([f_v, f_t], dim=-1)
         return self.head(combined)

@@ -17,3 +17,6 @@ Chronological record of research decisions and actions. Append-only.
 | 11 | 2026-03-19 | implement | Created `src/evaluate.py` — metrics, bootstrap significance, LODO runner, ablation framework, t-SNE |
 | 12 | 2026-03-19 | implement | Created `notebooks/causalcrisis_v3_experiment.py` — Colab-ready 10-cell experiment script |
 | 13 | 2026-03-19 | implement | Created experiment protocol for H1 (CLIP MLP baseline) |
+| 14 | 2026-03-19 | infra | Archived V1/V2 code to `archive/`, cleaned `src/` to 7 modules only |
+| 15 | 2026-03-19 | infra | Updated README.md and requirements.txt for V3 |
+| 16 | 2026-03-19 | infra | Pushed to GitHub branch `v3-causalcrisis-enhanced`, created PR #1 |

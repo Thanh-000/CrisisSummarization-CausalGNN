@@ -1,6 +1,6 @@
 # CausalCrisis V3 — Source Package
-from .config import CausalCrisisConfig, get_config
-from .models import CausalCrisisV3, CLIPMLPBaseline
+from .config import CausalCrisisConfig, AdapterConfig, get_config
+from .models import CausalCrisisV3, CLIPMLPBaseline, CLIPTaskAdapter
 from .losses import CausalCrisisLoss, FocalLoss, SupConLoss, AdaptiveLossWeighting
 from .data import (
     load_crisismmd_annotations,
@@ -21,8 +21,8 @@ from .evaluate import (
 
 __version__ = "3.0.0"
 __all__ = [
-    "CausalCrisisConfig", "get_config",
-    "CausalCrisisV3", "CLIPMLPBaseline",
+    "CausalCrisisConfig", "AdapterConfig", "get_config",
+    "CausalCrisisV3", "CLIPMLPBaseline", "CLIPTaskAdapter",
     "CausalCrisisLoss", "FocalLoss", "SupConLoss", "AdaptiveLossWeighting",
     "load_crisismmd_annotations", "extract_and_cache_clip_features",
     "CrisisMMDDataset", "create_stratified_splits", "create_lodo_splits",

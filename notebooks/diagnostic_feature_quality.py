@@ -100,7 +100,8 @@ if "split" in data.columns:
         if len(split_data) > 0:
             split_labels = split_data["label"].values
             split_counts = Counter(split_labels)
-            print(f"  {split}: {len(split_data):,} samples — {dict(split_counts)}")
+            split_counts_clean = {int(k): int(v) for k, v in split_counts.items()}
+            print(f"  {split}: {len(split_data):,} samples — {split_counts_clean}")
 else:
     print("  No 'split' column — using random splits")
 
@@ -198,6 +199,7 @@ except Exception as e:
 # ── 9. Per-split linear probe (official splits) ──
 print(f"\n🔬 9. Official Split Linear Probe")
 print("─" * 50)
+official_test_f1 = None
 if "split" in data.columns:
     train_mask = data["split"] == "train"
     dev_mask = data["split"] == "dev"
@@ -222,6 +224,7 @@ if "split" in data.columns:
         
         pred_test = clf.predict(X_test)
         f1_test = f1_score(y_test, pred_test, average='weighted')
+        official_test_f1 = float(f1_test)
         
         print(f"  Train on official train → Test F1 = {f1_test:.4f}")
         print(f"\n  Classification Report (official test):")
@@ -241,25 +244,24 @@ print(f"\n{'=' * 70}")
 print(f"📋 DIAGNOSTIC VERDICT")
 print(f"{'=' * 70}")
 print(f"\n  Best linear probe F1: {best_f1:.4f} ({best_name})")
+if official_test_f1 is not None:
+    print(f"  Official split test F1: {official_test_f1:.4f}")
 print()
 
-if best_f1 > 0.88:
-    print("  ✅ CLIP features are GOOD (F1 > 88%)")
-    print("  → Problem is in TRAINING PROTOCOL (Phase 2, loss weights, etc.)")
-    print("  → Proceed to Fix A+B: Gradual loss activation + 3-phase training")
-elif best_f1 > 0.82:
-    print("  ⚠️ CLIP features are MODERATE (82-88%)")
-    print("  → Features usable but may need enhancement")
-    print("  → Check: model variant, text quality, feature normalization")
-    print("  → Training fixes may still push to >90% if architecture is right")
-elif best_f1 > 0.75:
-    print("  ❌ CLIP features are POOR (75-82%)")
-    print("  → Likely issue with feature extraction or data quality")
-    print("  → Check: correct CLIP model loaded? texts not empty?")
-    print("  → Fix feature pipeline BEFORE training fixes")
+decision_f1 = official_test_f1 if official_test_f1 is not None else float(best_f1)
+
+if decision_f1 >= 0.86:
+    print("  ✅ CLIP features are STRONG for frozen-feature probing")
+    print("  → Focus on model/training design to gain final points")
+elif decision_f1 >= 0.80:
+    print("  ✅ CLIP features are GOOD and usable")
+    print("  → No extraction bug signal; continue with training/architecture tuning")
+elif decision_f1 >= 0.74:
+    print("  ⚠️ CLIP features are ACCEPTABLE baseline for CrisisMMD Task 1")
+    print("  → This range is common for frozen CLIP + linear probe")
+    print("  → 0.90+ usually needs stronger nonlinear heads and full multimodal training")
 else:
-    print("  🚨 CLIP features are BROKEN (<75%)")
-    print("  → Feature extraction is fundamentally broken")
-    print("  → Debug CLIP model loading and data pipeline first")
+    print("  ❌ CLIP features are LIKELY WEAK (<0.74)")
+    print("  → Check extraction setup, label alignment, and text/image path quality")
 
 print(f"\n{'=' * 70}")

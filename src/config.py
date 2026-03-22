@@ -20,6 +20,15 @@ class CLIPConfig:
 
 
 @dataclass
+class AdapterConfig:
+    """ð CLIP Task Adapter configuration."""
+    use_adapter: bool = True          # Enable/disable adapter
+    bottleneck: int = 128             # Bottleneck dimension (768 → 128 → 768)
+    residual_ratio: float = 0.2      # Blend ratio: (1-r)*CLIP + r*adapted
+    dropout: float = 0.1
+
+
+@dataclass
 class DisentangleConfig:
     """Per-Modality Causal Disentanglement configuration."""
     input_dim: int = 768
@@ -71,8 +80,8 @@ class TrainingConfig:
     num_workers: int = 4
     early_stop_patience: int = 15
     
-    # 2-Phase Training Protocol (simplified from 3-phase)
-    warmup_epochs: int = 10
+    # 2-Phase Training Protocol (with gradual loss activation)
+    warmup_epochs: int = 20           # ð§ Extended from 10 for adapter convergence
     
     # Loss weights (dùng adaptive nếu use_adaptive_weights=True)
     focal_gamma: float = 2.0
@@ -81,10 +90,14 @@ class TrainingConfig:
     alpha_supcon: float = 0.1     # 🆕 Supervised Contrastive
     alpha_recon: float = 0.0      # Disabled by default (ortho + adv đủ)
     use_adaptive_weights: bool = True  # 🆕 Adaptive Weighting
+    adaptive_init_logvar: float = 2.0  # ð§ Start with low precision for stability
     
     # GRL settings
-    grl_lambda_max: float = 1.0
-    grl_warmup_epochs: int = 10
+    grl_lambda_max: float = 0.5       # ð§ Reduced from 1.0 for gentler adversarial
+    grl_warmup_epochs: int = 20        # ð§ Extended from 10
+    
+    # Early stopping
+    early_stop_patience: int = 25      # ð§ Increased from 15
     
     # Backdoor Adjustment
     memory_bank_size: int = 1000   # Giảm từ 2000 (simplicity test)
@@ -134,6 +147,7 @@ class EvalConfig:
 class CausalCrisisConfig:
     """Master configuration."""
     clip: CLIPConfig = field(default_factory=CLIPConfig)
+    adapter: AdapterConfig = field(default_factory=AdapterConfig)  # ð
     disentangle: DisentangleConfig = field(default_factory=DisentangleConfig)
     fusion: FusionConfig = field(default_factory=FusionConfig)
     classifier: ClassifierConfig = field(default_factory=ClassifierConfig)

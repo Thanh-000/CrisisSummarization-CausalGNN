@@ -124,8 +124,11 @@ class CausalCrisisTrainer:
                 use_ba=False,
             )
             
-            # Loss
-            losses = self.loss_fn(output, labels, domain_ids_input, epoch)
+            # Loss (with gradual ramp-up awareness)
+            losses = self.loss_fn(
+                output, labels, domain_ids_input, epoch,
+                warmup_epochs=self.warmup_epochs,
+            )
             loss = losses["total"]
             
             # Backward

@@ -124,13 +124,14 @@ class AdaptiveLossWeighting(nn.Module):
     
     L_total = Σ (1/(2*σ²_i)) * L_i + log(σ_i)
     
-    Eliminates need for manual α₁, α₂, α₃ tuning.
+    🔧 Fix: init log_vars=2.0 (precision=0.14) thay vì 0.0 (precision=1.0)
+    để tránh auxiliary losses nhận full weight ngay lập tức.
     """
     
-    def __init__(self, n_losses: int = 4):
+    def __init__(self, n_losses: int = 4, init_logvar: float = 2.0):
         super().__init__()
-        # Learnable log-variance cho mỗi loss
-        self.log_vars = nn.Parameter(torch.zeros(n_losses))
+        # 🔧 Khởi tạo log_var > 0 → precision thấp ban đầu → gentle start
+        self.log_vars = nn.Parameter(torch.full((n_losses,), init_logvar))
     
     def forward(self, losses: List[torch.Tensor]) -> torch.Tensor:
         """
@@ -142,7 +143,6 @@ class AdaptiveLossWeighting(nn.Module):
         total = 0
         for i, loss in enumerate(losses):
             if i >= len(self.log_vars):
-                # Fallback: thêm loss không có weight → weight = 1
                 total += loss
                 continue
             
@@ -164,15 +164,17 @@ class AdaptiveLossWeighting(nn.Module):
 
 
 # ============================================================================
-# Combined Loss Function
+# Combined Loss Function (with gradual activation 🔧)
 # ============================================================================
 class CausalCrisisLoss(nn.Module):
     """
     Combined loss cho CausalCrisis V3.
     
-    L = L_focal + α₁(L_adv_v + L_adv_t) + α₂(L_ortho_v + L_ortho_t) + α₃·L_supcon
+    L = L_focal + ramp * [α₁(L_adv) + α₂(L_ortho) + α₃·L_supcon]
     
-    Nếu use_adaptive = True → weights tự learn.
+    🔧 Fixes:
+    1. Gradual loss ramp-up thay vì sudden activation
+    2. Adaptive weights bắt đầu với low precision
     """
     
     def __init__(
@@ -185,6 +187,9 @@ class CausalCrisisLoss(nn.Module):
         supcon_temperature: float = 0.07,
         use_adaptive: bool = True,
         class_weights: Optional[torch.Tensor] = None,
+        # 🔧 New params for stability
+        loss_ramp_epochs: int = 20,
+        adaptive_init_logvar: float = 2.0,
     ):
         super().__init__()
         
@@ -197,11 +202,28 @@ class CausalCrisisLoss(nn.Module):
         self.alpha_ortho = alpha_ortho
         self.alpha_supcon = alpha_supcon
         self.use_adaptive = use_adaptive
+        self.loss_ramp_epochs = loss_ramp_epochs
         
         if use_adaptive:
-            self.adaptive_weights = AdaptiveLossWeighting(n_losses=4)
+            self.adaptive_weights = AdaptiveLossWeighting(
+                n_losses=4, init_logvar=adaptive_init_logvar
+            )
         else:
             self.adaptive_weights = None
+    
+    def _get_ramp_factor(self, epoch: int, warmup_epochs: int) -> float:
+        """
+        🔧 Gradual ramp-up factor cho auxiliary losses.
+        Tránh bật đồng loạt khi Phase 2 bắt đầu.
+        
+        Epoch < warmup: 0.0 (chỉ focal loss)
+        Epoch warmup → warmup+ramp: 0.0 → 1.0 (linear ramp)
+        Epoch > warmup+ramp: 1.0 (full weight)
+        """
+        if epoch < warmup_epochs:
+            return 0.0
+        ramp_progress = (epoch - warmup_epochs) / max(self.loss_ramp_epochs, 1)
+        return min(ramp_progress, 1.0)
     
     def forward(
         self,
@@ -209,22 +231,28 @@ class CausalCrisisLoss(nn.Module):
         labels: torch.Tensor,
         domain_labels: Optional[torch.Tensor] = None,
         epoch: int = 0,
+        warmup_epochs: int = 20,
     ) -> Dict[str, torch.Tensor]:
         """
-        Compute all losses.
+        Compute all losses with gradual activation.
         
         Args:
             model_output: dict from CausalCrisisV3.forward()
             labels: (B,) class labels
             domain_labels: (B,) domain labels (optional)
             epoch: current epoch
+            warmup_epochs: number of warmup epochs (Phase 1)
         
         Returns:
             dict with total_loss and individual loss values
         """
         losses = {}
         
-        # 1. Focal Loss (classification)
+        # 🔧 Ramp factor for auxiliary losses
+        ramp = self._get_ramp_factor(epoch, warmup_epochs)
+        losses["ramp_factor"] = ramp
+        
+        # 1. Focal Loss (classification) — always active
         L_focal = self.focal_loss(model_output["logits"], labels)
         losses["focal"] = L_focal
         
@@ -242,24 +270,25 @@ class CausalCrisisLoss(nn.Module):
             L_adv = L_adv_v + L_adv_t
         losses["adversarial"] = L_adv
         
-        # 4. SupCon Loss 🆕
+        # 4. SupCon Loss
         causal_concat = torch.cat([
             model_output["C_v"], model_output["C_t"], model_output["C_vt"]
         ], dim=-1)
         L_supcon = self.supcon_loss(causal_concat, labels)
         losses["supcon"] = L_supcon
         
-        # Total loss
+        # Total loss with 🔧 gradual ramp-up
         if self.use_adaptive and self.adaptive_weights is not None:
-            loss_list = [L_focal, L_adv, L_ortho, L_supcon]
+            # Apply ramp to auxiliary losses BEFORE adaptive weighting
+            loss_list = [L_focal, ramp * L_adv, ramp * L_ortho, ramp * L_supcon]
             total = self.adaptive_weights(loss_list)
             losses["adaptive_weights"] = self.adaptive_weights.get_weights()
         else:
             total = (
                 L_focal 
-                + self.alpha_adv * L_adv 
-                + self.alpha_ortho * L_ortho 
-                + self.alpha_supcon * L_supcon
+                + ramp * self.alpha_adv * L_adv 
+                + ramp * self.alpha_ortho * L_ortho 
+                + ramp * self.alpha_supcon * L_supcon
             )
         
         losses["total"] = total

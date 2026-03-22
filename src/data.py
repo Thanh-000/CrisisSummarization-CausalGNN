@@ -36,6 +36,62 @@ def load_crisismmd_annotations(
         "task2": "crisismmd_datasplit_all/task_humanitarian_text_img_agreed_lab",
         "task3": "crisismmd_datasplit_all/task_damage_text_img_agreed_lab",
     }
+    task_keywords = {
+        "task1": ["informative", "text", "img"],
+        "task2": ["humanitarian", "text", "img"],
+        "task3": ["damage", "text", "img"],
+    }
+
+    def detect_sep(filepath: str) -> str:
+        """Best-effort delimiter detection for annotation files."""
+        try:
+            with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+                first_line = f.readline()
+        except Exception:
+            return "\t"
+        tab_count = first_line.count("\t")
+        comma_count = first_line.count(",")
+        return "\t" if tab_count >= comma_count else ","
+
+    def find_annotation_file(split: str) -> Optional[str]:
+        """Find best annotation file for (task, split) if canonical path is missing."""
+        canonical = os.path.join(data_dir, f"{task_file_map[task]}_{split}.tsv")
+        if os.path.exists(canonical):
+            return canonical
+
+        split_aliases = {
+            "train": ["train"],
+            "dev": ["dev", "val", "valid", "validation"],
+            "test": ["test"],
+        }[split]
+
+        candidates = []
+        for dirpath, _, filenames in os.walk(data_dir):
+            for fn in filenames:
+                fn_lower = fn.lower()
+                if not fn_lower.endswith((".tsv", ".csv", ".txt")):
+                    continue
+                if not any(tag in fn_lower for tag in split_aliases):
+                    continue
+                score = 0
+                for kw in task_keywords.get(task, []):
+                    if kw in fn_lower:
+                        score += 2
+                if "task1" in fn_lower and task == "task1":
+                    score += 3
+                if "task2" in fn_lower and task == "task2":
+                    score += 3
+                if "task3" in fn_lower and task == "task3":
+                    score += 3
+                candidates.append((score, os.path.join(dirpath, fn)))
+
+        if not candidates:
+            return None
+
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        best_path = candidates[0][1]
+        print(f"ℹ️ Using discovered {task} {split} file: {best_path}")
+        return best_path
     
     # Label mapping cho từng task
     label_maps = {
@@ -60,43 +116,114 @@ def load_crisismmd_annotations(
     # Đọc từng split
     records = []
     for split in ["train", "dev", "test"]:
-        filepath = os.path.join(data_dir, f"{task_file_map[task]}_{split}.tsv")
-        if not os.path.exists(filepath):
+        filepath = find_annotation_file(split)
+        if not filepath or not os.path.exists(filepath):
             print(f"⚠️ File not found: {filepath}")
             continue
         
-        df = pd.read_csv(filepath, sep="\t")
-        
-        # Chuẩn hóa tên cột
-        col_map = {}
-        for col in df.columns:
-            col_lower = col.lower().strip()
-            if "image" in col_lower:
-                col_map[col] = "image_path"
-            elif "tweet_text" in col_lower or "text" in col_lower:
-                col_map[col] = "text"
-            elif "label" in col_lower:
-                col_map[col] = "label_name"
-            elif "event" in col_lower:
-                col_map[col] = "event_name"
-        
-        df = df.rename(columns=col_map)
-        df["split"] = split
+        sep = detect_sep(filepath)
+        df = pd.read_csv(filepath, sep=sep)
+
+        cols = list(df.columns)
+
+        def choose_best_column(kind: str) -> Optional[str]:
+            best_col = None
+            best_score = -10**9
+            for col in cols:
+                lc = str(col).lower().strip()
+                score = 0
+                if kind == "image":
+                    if "image_path" in lc:
+                        score += 120
+                    if lc in {"image", "img"}:
+                        score += 100
+                    if "image" in lc or "img" in lc:
+                        score += 50
+                    if "id" in lc:
+                        score -= 80
+                elif kind == "text":
+                    if "tweet_text" in lc:
+                        score += 120
+                    if lc == "text":
+                        score += 100
+                    if "text" in lc:
+                        score += 50
+                elif kind == "label":
+                    if lc in {"label_name", "label"}:
+                        score += 120
+                    if "label" in lc:
+                        score += 60
+                    if "id" in lc:
+                        score -= 60
+                elif kind == "event":
+                    if lc == "event_name":
+                        score += 120
+                    if "event" in lc:
+                        score += 50
+                    if "id" in lc:
+                        score -= 40
+
+                if score > best_score:
+                    best_score = score
+                    best_col = col
+
+            return best_col if best_score > 0 else None
+
+        image_col = choose_best_column("image")
+        text_col = choose_best_column("text")
+        label_col = choose_best_column("label")
+        event_col = choose_best_column("event")
+
+        # Build a canonical dataframe to avoid duplicate-column rename issues.
+        norm = pd.DataFrame(index=df.index)
+        if image_col is not None:
+            norm["image_path"] = df[image_col]
+        if text_col is not None:
+            norm["text"] = df[text_col]
+        else:
+            norm["text"] = ""
+        if label_col is not None:
+            norm["label_name"] = df[label_col]
+        if event_col is not None:
+            norm["event_name"] = df[event_col]
+        norm["split"] = split
+
+        if image_col is None or label_col is None:
+            print(
+                f"⚠️ Skip split {split}: cannot identify required columns "
+                f"(image_col={image_col}, label_col={label_col}) from {filepath}"
+            )
+            continue
         
         # Map labels
-        if "label_name" in df.columns:
+        if "label_name" in norm.columns:
             label_map = label_maps.get(task, {})
-            df["label"] = df["label_name"].str.lower().str.strip().map(label_map)
-            df = df.dropna(subset=["label"])
-            df["label"] = df["label"].astype(int)
+            label_series = norm["label_name"]
+            if pd.api.types.is_numeric_dtype(label_series):
+                mapped = pd.to_numeric(label_series, errors="coerce")
+            else:
+                label_str = label_series.astype(str).str.lower().str.strip()
+                mapped = label_str.map(label_map)
+                if mapped.isna().all():
+                    mapped = pd.to_numeric(label_str, errors="coerce")
+            norm["label"] = mapped
+            norm = norm.dropna(subset=["label"])
+            norm["label"] = norm["label"].astype(int)
         
         # Fix image paths
-        if "image_path" in df.columns:
-            df["image_path"] = df["image_path"].apply(
-                lambda x: os.path.join(data_dir, x) if not os.path.isabs(x) else x
-            )
+        if "image_path" in norm.columns:
+            def to_abs_image_path(x):
+                if pd.isna(x):
+                    return ""
+                p = str(x).strip()
+                if not p:
+                    return ""
+                if os.path.isabs(p):
+                    return p
+                return os.path.join(data_dir, p.lstrip("./\\"))
+            norm["image_path"] = norm["image_path"].apply(to_abs_image_path)
         
-        records.append(df)
+        records.append(norm)
     
     if not records:
         raise FileNotFoundError(f"No CrisisMMD files found in {data_dir}")
@@ -398,17 +525,27 @@ def compute_class_weights(labels: np.ndarray) -> torch.Tensor:
     """Compute class weights dựa trên frequency."""
     counts = Counter(labels)
     total = len(labels)
-    n_classes = len(counts)
+    # Keep weight vector aligned with class index space [0..max_label].
+    # This avoids shape mismatches when some classes are absent in a split.
+    n_classes = int(np.max(labels)) + 1 if len(labels) > 0 else 0
+    if n_classes == 0:
+        return torch.FloatTensor([])
     
     weights = []
     for c in range(n_classes):
-        # Inverse frequency
-        w = total / (n_classes * counts.get(c, 1))
+        cls_count = counts.get(c, 0)
+        if cls_count == 0:
+            # Missing class in this split -> ignore in CE/Focal via zero weight.
+            w = 0.0
+        else:
+            # Inverse frequency
+            w = total / (n_classes * cls_count)
         weights.append(w)
     
     weights = torch.FloatTensor(weights)
-    # Normalize
-    weights = weights / weights.sum() * n_classes
+    # Normalize only when non-zero sum exists.
+    if weights.sum() > 0:
+        weights = weights / weights.sum() * n_classes
     
     print(f"⚖️ Class weights: {weights.tolist()}")
     return weights
