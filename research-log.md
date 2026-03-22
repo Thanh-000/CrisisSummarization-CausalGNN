@@ -1,22 +1,20 @@
-# Research Log — CausalCrisis V3
+# Research Log — CausalCrisis V3→V4
 
 Chronological record of research decisions and actions. Append-only.
 
 | # | Date | Type | Summary |
 |---|------|------|---------|
-| 1 | 2026-03-19 | bootstrap | Project restart: CausalCrisis V3 with CLIP ViT-L/14 + per-modality causal disentanglement |
-| 2 | 2026-03-19 | bootstrap | Literature scan: 9 key papers identified, including new CCA (2025) and CLIP-DCA (2025) |
-| 3 | 2026-03-19 | bootstrap | 7 hypotheses formed (H1-H7), prioritized by dependency chain |
-| 4 | 2026-03-19 | bootstrap | Skills integrated: autoresearch, multimodal-clip, evaluation, ml-paper-writing, research-ideation, data-processing |
-| 5 | 2026-03-19 | bootstrap | Architecture analysis using research-ideation frameworks → 5 improvement proposals generated |
-| 6 | 2026-03-19 | implement | Created `src/config.py` — centralized hyperparameters with all 5 improvements |
-| 7 | 2026-03-19 | implement | Created `src/models.py` — HybridDisentangler (ICA+Adv), CrossAttention/Bilinear fusion, GRL, BA, full V3 pipeline |
-| 8 | 2026-03-19 | implement | Created `src/losses.py` — FocalLoss, OrthogonalLoss, SupConLoss (🆕), AdaptiveLossWeighting (🆕) |
-| 9 | 2026-03-19 | implement | Created `src/data.py` — CrisisMMD loader, CLIP caching, stratified splits, LODO splits |
-| 10 | 2026-03-19 | implement | Created `src/trainer.py` — 2-phase training, EarlyStopping, BaselineTrainer |
-| 11 | 2026-03-19 | implement | Created `src/evaluate.py` — metrics, bootstrap significance, LODO runner, ablation framework, t-SNE |
-| 12 | 2026-03-19 | implement | Created `notebooks/causalcrisis_v3_experiment.py` — Colab-ready 10-cell experiment script |
-| 13 | 2026-03-19 | implement | Created experiment protocol for H1 (CLIP MLP baseline) |
-| 14 | 2026-03-19 | infra | Archived V1/V2 code to `archive/`, cleaned `src/` to 7 modules only |
-| 15 | 2026-03-19 | infra | Updated README.md and requirements.txt for V3 |
-| 16 | 2026-03-19 | infra | Pushed to GitHub branch `v3-causalcrisis-enhanced`, created PR #1 |
+| 1 | 2026-03-19 | bootstrap | Project initialized: CausalCrisis V3 with per-modality causal disentanglement targeting >90% F1 on CrisisMMD |
+| 2 | 2026-03-22 | inner-loop | V3 baseline (frozen CLIP+MLP): 77.8% F1w — far below expected 88% |
+| 3 | 2026-03-22 | inner-loop | V3 full model: 78.3% F1w — disentanglement+GRL+SupCon adds only +0.5% |
+| 4 | 2026-03-22 | inner-loop | Diagnosed: CosineAnnealingWarmRestarts was killing LR before Phase 2. Fixed to CosineAnnealingLR. |
+| 5 | 2026-03-22 | inner-loop | Diagnosed: Phase 2 auxiliary losses actively degrade val F1 (0.81→0.75) |
+| 6 | 2026-03-22 | inner-loop | Diagnosed: Frozen CLIP features have hard ceiling ~78-80% F1 regardless of downstream architecture |
+| 7 | 2026-03-22 | outer-loop | **REFLECTION CYCLE 1:** V3 architecture fundamentally limited. Feature quality is the bottleneck, not architecture. |
+| 8 | 2026-03-22 | outer-loop | Literature review: Munia et al. 2025 achieves 92.89% F1w with CLIP+LLaVA+Guided CA |
+| 9 | 2026-03-22 | outer-loop | Literature review: CAMO 2025 uses joint disentanglement (not per-modality like V3) |
+| 10 | 2026-03-22 | outer-loop | Literature review: CLIP-BCA-Gated 2024 achieves 91.77% acc with bidirectional cross-attention |
+| 11 | 2026-03-22 | outer-loop | Literature review: CausalCLIP 2025 uses disentangle-then-filter on CLIP (AAAI 2026) |
+| 12 | 2026-03-22 | pivot | **PIVOT to V4:** Drop per-modality disentanglement. Add LLaVA captions + Guided CA. Keep causal story for LODO. |
+| 13 | 2026-03-22 | outer-loop | **DIRECTION: PIVOT** — New research question: Can causal disentanglement add value on TOP of LLaVA-enriched features? |
+| 14 | 2026-03-22 | bootstrap | Formed 7 hypotheses (H1-H7). Priority: H1 (LLaVA), H2 (Guided CA), H6 (full pipeline) |
