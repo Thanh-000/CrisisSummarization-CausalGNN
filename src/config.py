@@ -65,47 +65,49 @@ class TrainingConfig:
     """Training configuration."""
     # Optimizer
     optimizer: str = "adamw"
-    lr: float = 1e-3
+    lr: float = 3e-4              # 🔧 Reduced from 1e-3 (gentler for adapter)
     weight_decay: float = 0.01
     
-    # Scheduler
-    scheduler: str = "cosine_warm_restarts"  # 🆕 warm restarts
+    # Scheduler — 🔧 Simple CosineAnnealing (no restarts)
+    scheduler: str = "cosine"
+    T_max: int = 100              # 🔧 Match total epochs
+    eta_min: float = 1e-6
+    # Keep T_0/T_mult for backward compat but unused
     T_0: int = 30
     T_mult: int = 2
-    eta_min: float = 1e-6
     
     # Training
     epochs: int = 100
     batch_size: int = 128
     num_workers: int = 4
-    early_stop_patience: int = 15
+    early_stop_patience: int = 20 # 🔧 Balanced patience
     
-    # 2-Phase Training Protocol (with gradual loss activation)
-    warmup_epochs: int = 20           # ð§ Extended from 10 for adapter convergence
+    # 2-Phase Training Protocol
+    warmup_epochs: int = 10       # 🔧 Reduced from 20 (Phase 2 gets more LR budget)
     
-    # Loss weights (dùng adaptive nếu use_adaptive_weights=True)
+    # Loss weights — 🔧 Fixed weights (no adaptive)
     focal_gamma: float = 2.0
     alpha_adv: float = 0.1
     alpha_ortho: float = 0.05
-    alpha_supcon: float = 0.1     # 🆕 Supervised Contrastive
-    alpha_recon: float = 0.0      # Disabled by default (ortho + adv đủ)
-    use_adaptive_weights: bool = True  # 🆕 Adaptive Weighting
-    adaptive_init_logvar: float = 2.0  # ð§ Start with low precision for stability
+    alpha_supcon: float = 0.1
+    alpha_recon: float = 0.0
+    use_adaptive_weights: bool = False  # 🔧 DISABLED (was inflating train loss)
+    adaptive_init_logvar: float = 0.0   # 🔧 Reset (unused when adaptive=False)
     
     # GRL settings
-    grl_lambda_max: float = 0.5       # ð§ Reduced from 1.0 for gentler adversarial
-    grl_warmup_epochs: int = 20        # ð§ Extended from 10
+    grl_lambda_max: float = 0.3         # 🔧 Reduced further for stability
+    grl_warmup_epochs: int = 10         # 🔧 Match warmup_epochs
     
-    # Early stopping
-    early_stop_patience: int = 25      # ð§ Increased from 15
+    # Gradual loss ramp-up
+    loss_ramp_epochs: int = 10          # 🔧 Ramp over 10 epochs after warmup
     
     # Backdoor Adjustment
-    memory_bank_size: int = 1000   # Giảm từ 2000 (simplicity test)
-    ba_n_samples: int = 30         # Giảm từ 50 (simplicity test)
-    ba_start_epoch: int = 50       # Bắt đầu BA từ epoch 50
+    memory_bank_size: int = 1000
+    ba_n_samples: int = 30
+    ba_start_epoch: int = 30          # 🔧 Reduced from 50 (so BA actually activates)
     
     # Domain config
-    num_domains: int = 7           # 7 disasters trong CrisisMMD
+    num_domains: int = 7
     
     # Reproducibility
     seeds: List[int] = field(default_factory=lambda: [42, 123, 456, 789, 1024])

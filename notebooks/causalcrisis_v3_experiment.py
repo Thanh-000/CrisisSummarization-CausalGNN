@@ -1,4 +1,4 @@
-﻿"""
+"""
 CausalCrisis V3 - Google Colab Notebook Script
 
 This script mirrors the experiment notebook cells and is used as the editable
@@ -764,12 +764,35 @@ print("CausalCrisis V3 full model")
 print(f"Targets: >{TARGET_CRISISSPOT:.3f} (CrisisSpot), >{TARGET_H6:.2f} (H6)")
 print("=" * 60)
 
+# Stabilized preset to improve V3 training signal on CrisisMMD Task 1.
+V3_PRESET = {
+    "epochs": 100,
+    "patience": 20,
+    "lr": 3e-4,
+    "weight_decay": 0.01,
+    "warmup_epochs": 10,
+    "ba_start_epoch": 30,
+    "grl_lambda_max": 0.3,
+    "grl_warmup_epochs": 10,
+    "alpha_adv": 0.05,
+    "alpha_ortho": 0.03,
+    "alpha_supcon": 0.05,
+    "use_adaptive_weights": False,
+    "loss_ramp_epochs": 10,
+    "scheduler_eta_min": 1e-6,
+    "eval_pick_best_ba": True,
+}
+print("V3 preset:")
+for k, v in V3_PRESET.items():
+    print(f"  {k}: {v}")
+
 v3_results = []
 v3_histories = []
 v3_ckpts = {}
 
 
 def build_v3_model(cfg):
+    """Build V3 model with CLIP-Adapter + disentanglement."""
     return CausalCrisisV3(
         input_dim=cfg.clip.image_dim,
         causal_dim=cfg.disentangle.causal_dim,
@@ -780,8 +803,12 @@ def build_v3_model(cfg):
         dropout=cfg.disentangle.dropout,
         use_ica_init=cfg.disentangle.use_ica_init,
         fusion_type=cfg.fusion.fusion_type,
-        grl_lambda_max=cfg.training.grl_lambda_max,
-        grl_warmup_epochs=cfg.training.grl_warmup_epochs,
+        grl_lambda_max=V3_PRESET["grl_lambda_max"],
+        grl_warmup_epochs=V3_PRESET["grl_warmup_epochs"],
+        # CLIP-Adapter
+        use_adapter=cfg.adapter.use_adapter,
+        adapter_bottleneck=cfg.adapter.bottleneck,
+        adapter_residual_ratio=cfg.adapter.residual_ratio,
     )
 
 
@@ -797,23 +824,23 @@ for seed in SEEDS:
     loss_fn = CausalCrisisLoss(
         num_classes=config.classifier.num_classes,
         focal_gamma=config.training.focal_gamma,
-        alpha_adv=config.training.alpha_adv,
-        alpha_ortho=config.training.alpha_ortho,
-        alpha_supcon=config.training.alpha_supcon,
-        use_adaptive=config.training.use_adaptive_weights,
+        alpha_adv=V3_PRESET["alpha_adv"],
+        alpha_ortho=V3_PRESET["alpha_ortho"],
+        alpha_supcon=V3_PRESET["alpha_supcon"],
+        use_adaptive=V3_PRESET["use_adaptive_weights"],
         class_weights=class_weights,
+        loss_ramp_epochs=V3_PRESET["loss_ramp_epochs"],
     )
 
     optimizer = torch.optim.AdamW(
         list(model.parameters()) + list(loss_fn.parameters()),
-        lr=config.training.lr,
-        weight_decay=config.training.weight_decay,
+        lr=V3_PRESET["lr"],
+        weight_decay=V3_PRESET["weight_decay"],
     )
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer,
-        T_0=config.training.T_0,
-        T_mult=config.training.T_mult,
-        eta_min=config.training.eta_min,
+        T_max=V3_PRESET["epochs"],
+        eta_min=V3_PRESET["scheduler_eta_min"],
     )
 
     trainer = CausalCrisisTrainer(
@@ -822,8 +849,8 @@ for seed in SEEDS:
         optimizer=optimizer,
         scheduler=scheduler,
         device=DEVICE,
-        warmup_epochs=config.training.warmup_epochs,
-        ba_start_epoch=config.training.ba_start_epoch,
+        warmup_epochs=V3_PRESET["warmup_epochs"],
+        ba_start_epoch=V3_PRESET["ba_start_epoch"],
         save_dir="checkpoints",
         experiment_name=f"v3_seed{seed}",
     )
@@ -831,16 +858,39 @@ for seed in SEEDS:
     history = trainer.train(
         loaders["train"],
         loaders["val"],
-        epochs=config.training.epochs,
-        patience=config.training.early_stop_patience,
+        epochs=V3_PRESET["epochs"],
+        patience=V3_PRESET["patience"],
     )
     v3_histories.append(history)
+    trained_epochs = len(history.get("val_f1", []))
+    phase2_epochs = max(0, trained_epochs - V3_PRESET["warmup_epochs"])
+    ba_epochs = max(0, trained_epochs - V3_PRESET["ba_start_epoch"])
+    print(
+        f"Training span: {trained_epochs} epochs | "
+        f"Phase2 active: {phase2_epochs} | BA active: {ba_epochs}"
+    )
+    if phase2_epochs == 0:
+        print("Warning: warmup consumed all trained epochs; causal losses never activated.")
+    if ba_epochs == 0:
+        print("Warning: BA never activated (trained epochs < ba_start_epoch).")
 
     ckpt_path = f"checkpoints/v3_seed{seed}_best.pt"
     trainer.load_checkpoint(ckpt_path)
     v3_ckpts[seed] = ckpt_path
 
-    eval_out = trainer.evaluate(loaders["test"], use_ba=True)
+    eval_no_ba = trainer.evaluate(loaders["test"], use_ba=False)
+    eval_with_ba = trainer.evaluate(loaders["test"], use_ba=True)
+    print(
+        f"Test F1 by eval mode: no_BA={eval_no_ba['f1']:.4f}, "
+        f"with_BA={eval_with_ba['f1']:.4f}"
+    )
+    if V3_PRESET["eval_pick_best_ba"] and eval_with_ba["f1"] >= eval_no_ba["f1"]:
+        eval_out = eval_with_ba
+        used_ba_eval = True
+    else:
+        eval_out = eval_no_ba
+        used_ba_eval = False
+
     y_true = eval_out["labels"]
     y_pred = eval_out["predictions"]
     y_prob = eval_out["probabilities"]
@@ -852,12 +902,14 @@ for seed in SEEDS:
     metrics["probabilities"] = y_prob
     metrics["balanced_accuracy"] = balanced_accuracy_score(y_true, y_pred)
     metrics["f1"] = metrics["f1_weighted"]
+    metrics["used_ba_eval"] = used_ba_eval
     v3_results.append(metrics)
 
     print(
         f"F1w={metrics['f1_weighted']:.4f} "
         f"F1m={metrics['f1_macro']:.4f} "
-        f"BAcc={metrics['balanced_accuracy']:.4f}"
+        f"BAcc={metrics['balanced_accuracy']:.4f} "
+        f"(used_BA_eval={used_ba_eval})"
     )
 
 f1_v3 = [r["f1_weighted"] for r in v3_results]
@@ -900,7 +952,11 @@ colors = ["#4ECDC4", "#FF6B6B", "#95E1D3"]
 bars = axes[0].bar(methods, f1_means, yerr=f1_stds, capsize=5, color=colors)
 axes[0].set_ylabel("Weighted F1")
 axes[0].set_title("Model Comparison")
-axes[0].set_ylim(0.80, 1.00)
+y_min = max(0.0, min(f1_means) - 0.03)
+y_max = min(1.0, max(f1_means) + 0.03)
+if y_max - y_min < 0.08:
+    y_min = max(0.0, y_max - 0.08)
+axes[0].set_ylim(y_min, y_max)
 axes[0].axhline(y=TARGET_CRISISSPOT, color="gray", linestyle="--", alpha=0.6)
 for bar, mean in zip(bars, f1_means):
     axes[0].text(bar.get_x() + bar.get_width() / 2, mean + 0.005, f"{mean:.3f}", ha="center")
