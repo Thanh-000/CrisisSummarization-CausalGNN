@@ -320,11 +320,201 @@ class CausalCrisisTrainer:
 
 
 # ============================================================================
-# Baseline MLP Trainer (simpler, for H1)
+# Generic Trainer (V4-compatible, works with any model)
+# ============================================================================
+class GenericTrainer:
+    """
+    Version-agnostic trainer — works with any model that returns logits.
+
+    Supports:
+    - 2-modal: model(f_v, f_t) → logits
+    - 3-modal: model(f_v, f_t, f_llava) → logits
+    - Any model returning a tensor of logits
+
+    Example usage:
+        trainer = GenericTrainer(device="cuda")
+        result = trainer.run_experiment(
+            "B2: GCA 3-modal", model, loaders,
+            epochs=50, lr=3e-4, patience=7,
+            loss_fn=FocalLoss(alpha=class_weights, gamma=2.0, label_smoothing=0.05),
+            use_llava=True, seed=42,
+        )
+    """
+
+    def __init__(self, device: str = "cuda"):
+        self.device = device
+
+    def train_one_epoch(self, model, loader, optimizer, loss_fn, use_llava=True):
+        """Train for 1 epoch."""
+        model.train()
+        total_loss = 0
+        all_preds, all_labels = [], []
+
+        for batch in loader:
+            f_v = batch["image_features"].to(self.device)
+            f_t = batch["text_features"].to(self.device)
+            labels = batch["label"].to(self.device)
+
+            f_llava = batch.get("llava_features")
+            if f_llava is not None and use_llava:
+                f_llava = f_llava.to(self.device)
+            else:
+                f_llava = None
+
+            # Forward — model returns logits directly
+            logits = model(f_v, f_t, f_llava) if f_llava is not None else model(f_v, f_t)
+            loss = loss_fn(logits, labels)
+
+            optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            optimizer.step()
+
+            total_loss += loss.item()
+            all_preds.extend(logits.argmax(-1).detach().cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+
+        from sklearn.metrics import f1_score
+        f1 = f1_score(all_labels, all_preds, average="weighted")
+        return total_loss / len(loader), f1
+
+    @torch.no_grad()
+    def evaluate(self, model, loader, loss_fn, use_llava=True):
+        """Evaluate model on a data loader."""
+        model.eval()
+        total_loss = 0
+        all_preds, all_labels, all_probs = [], [], []
+
+        for batch in loader:
+            f_v = batch["image_features"].to(self.device)
+            f_t = batch["text_features"].to(self.device)
+            labels = batch["label"].to(self.device)
+
+            f_llava = batch.get("llava_features")
+            if f_llava is not None and use_llava:
+                f_llava = f_llava.to(self.device)
+            else:
+                f_llava = None
+
+            logits = model(f_v, f_t, f_llava) if f_llava is not None else model(f_v, f_t)
+            loss = loss_fn(logits, labels)
+
+            total_loss += loss.item()
+            all_preds.extend(logits.argmax(-1).cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+            all_probs.extend(torch.softmax(logits, -1).cpu().numpy())
+
+        from sklearn.metrics import (
+            f1_score, accuracy_score, balanced_accuracy_score,
+        )
+
+        return {
+            "loss": total_loss / len(loader),
+            "f1_weighted": f1_score(all_labels, all_preds, average="weighted"),
+            "f1_macro": f1_score(all_labels, all_preds, average="macro"),
+            "accuracy": accuracy_score(all_labels, all_preds),
+            "balanced_acc": balanced_accuracy_score(all_labels, all_preds),
+            "preds": np.array(all_preds),
+            "labels": np.array(all_labels),
+            "probs": np.array(all_probs),
+        }
+
+    def run_experiment(
+        self,
+        model_name: str,
+        model: nn.Module,
+        loaders: dict,
+        loss_fn: nn.Module,
+        epochs: int = 50,
+        lr: float = 3e-4,
+        weight_decay: float = 0.01,
+        patience: int = 7,
+        use_llava: bool = True,
+        seed: int = 42,
+    ):
+        """Run full training + evaluation experiment."""
+        # Reproducibility
+        torch.manual_seed(seed)
+        np.random.seed(seed)
+
+        model = model.to(self.device)
+        loss_fn = loss_fn.to(self.device) if hasattr(loss_fn, 'to') else loss_fn
+
+        optimizer = torch.optim.AdamW(
+            model.parameters(), lr=lr, weight_decay=weight_decay
+        )
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=epochs, eta_min=1e-6
+        )
+
+        best_val_f1, best_epoch, no_improve = 0, 0, 0
+        best_state = None
+        history = {"train_loss": [], "val_loss": [], "train_f1": [], "val_f1": []}
+
+        for epoch in range(epochs):
+            train_loss, train_f1 = self.train_one_epoch(
+                model, loaders["train"], optimizer, loss_fn, use_llava
+            )
+            val_metrics = self.evaluate(model, loaders["val"], loss_fn, use_llava)
+            scheduler.step()
+
+            history["train_loss"].append(train_loss)
+            history["val_loss"].append(val_metrics["loss"])
+            history["train_f1"].append(train_f1)
+            history["val_f1"].append(val_metrics["f1_weighted"])
+
+            improved = val_metrics["f1_weighted"] > best_val_f1
+            if improved:
+                best_val_f1 = val_metrics["f1_weighted"]
+                best_epoch = epoch
+                best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+                no_improve = 0
+            else:
+                no_improve += 1
+
+            if epoch % 5 == 0 or improved:
+                marker = " ✅" if improved else ""
+                print(
+                    f"  Epoch {epoch:3d} | "
+                    f"Train: loss={train_loss:.4f} F1={train_f1:.4f} | "
+                    f"Val: F1w={val_metrics['f1_weighted']:.4f} "
+                    f"F1m={val_metrics['f1_macro']:.4f}{marker}"
+                )
+
+            if no_improve >= patience:
+                print(f"  ⏹️ Early stopping at epoch {epoch} (patience={patience})")
+                break
+
+        # Load best & evaluate on test
+        if best_state is not None:
+            model.load_state_dict(best_state)
+        model = model.to(self.device)
+        test_metrics = self.evaluate(model, loaders["test"], loss_fn, use_llava)
+
+        print(f"\n{'─' * 50}")
+        print(f"  {model_name} — RESULTS (best epoch {best_epoch}):")
+        print(f"  Val  F1w={best_val_f1:.4f}")
+        print(f"  Test F1w={test_metrics['f1_weighted']:.4f} "
+              f"F1m={test_metrics['f1_macro']:.4f} "
+              f"BAcc={test_metrics['balanced_acc']:.4f}")
+        print(f"{'─' * 50}")
+
+        return {
+            "model_name": model_name,
+            "best_val_f1": best_val_f1,
+            "best_epoch": best_epoch,
+            "test_metrics": test_metrics,
+            "history": history,
+            "model_state": best_state,
+        }
+
+
+# ============================================================================
+# Legacy Baseline Trainer (V3, kept for old notebooks)
 # ============================================================================
 class BaselineTrainer:
-    """Simplified trainer cho MLP baseline (H1)."""
-    
+    """Simplified trainer cho MLP baseline (V3 legacy)."""
+
     def __init__(self, model, optimizer, scheduler, device="cuda", save_dir="checkpoints"):
         self.model = model.to(device)
         self.optimizer = optimizer
@@ -332,87 +522,85 @@ class BaselineTrainer:
         self.device = device
         self.save_dir = save_dir
         os.makedirs(save_dir, exist_ok=True)
-        
+
         self.history = {"train_loss": [], "val_loss": [], "train_f1": [], "val_f1": []}
         self.best_val_f1 = 0
-    
+
     def train(self, train_loader, val_loader, epochs=100, patience=15,
               loss_fn=None):
-        """Train baseline model."""
         if loss_fn is None:
             loss_fn = nn.CrossEntropyLoss()
-        
+
         early_stop = EarlyStopping(patience=patience, mode="max")
-        
+
         for epoch in range(epochs):
-            # Train
             self.model.train()
             total_loss, all_preds, all_labels = 0, [], []
-            
+
             for batch in train_loader:
                 f_v = batch["image_features"].to(self.device)
                 f_t = batch["text_features"].to(self.device)
                 labels = batch["label"].to(self.device)
-                
+
                 logits = self.model(f_v, f_t)
                 loss = loss_fn(logits, labels)
-                
+
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
-                
+
                 total_loss += loss.item()
                 all_preds.extend(logits.argmax(-1).detach().cpu().numpy())
                 all_labels.extend(labels.cpu().numpy())
-            
+
             if self.scheduler:
                 self.scheduler.step()
-            
-            # Eval
+
             val_metrics = self._evaluate(val_loader, loss_fn)
-            
+
             from sklearn.metrics import f1_score
             train_f1 = f1_score(all_labels, all_preds, average="weighted")
-            
+
             self.history["train_loss"].append(total_loss / len(train_loader))
             self.history["val_loss"].append(val_metrics["loss"])
             self.history["train_f1"].append(train_f1)
             self.history["val_f1"].append(val_metrics["f1"])
-            
+
             if epoch % 10 == 0 or val_metrics["f1"] > self.best_val_f1:
                 print(f"Epoch {epoch:3d} | Train F1={train_f1:.4f} | Val F1={val_metrics['f1']:.4f}")
-            
+
             if val_metrics["f1"] > self.best_val_f1:
                 self.best_val_f1 = val_metrics["f1"]
-                torch.save(self.model.state_dict(), 
+                torch.save(self.model.state_dict(),
                           os.path.join(self.save_dir, "baseline_best.pt"))
-            
+
             if early_stop.step(val_metrics["f1"]):
                 print(f"Early stop at epoch {epoch}")
                 break
-        
+
         return self.history
-    
+
     @torch.no_grad()
     def _evaluate(self, loader, loss_fn):
         self.model.eval()
         total_loss, all_preds, all_labels = 0, [], []
-        
+
         for batch in loader:
             f_v = batch["image_features"].to(self.device)
             f_t = batch["text_features"].to(self.device)
             labels = batch["label"].to(self.device)
-            
+
             logits = self.model(f_v, f_t)
             loss = loss_fn(logits, labels)
-            
+
             total_loss += loss.item()
             all_preds.extend(logits.argmax(-1).cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
-        
+
         from sklearn.metrics import f1_score, accuracy_score
         return {
             "loss": total_loss / len(loader),
             "f1": f1_score(all_labels, all_preds, average="weighted"),
             "accuracy": accuracy_score(all_labels, all_preds),
         }
+

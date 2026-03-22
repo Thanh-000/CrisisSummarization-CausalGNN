@@ -1,33 +1,72 @@
-# CausalCrisis V3 — Source Package
-from .config import CausalCrisisConfig, AdapterConfig, get_config
-from .models import CausalCrisisV3, CLIPMLPBaseline, CLIPTaskAdapter
-from .losses import CausalCrisisLoss, FocalLoss, SupConLoss, AdaptiveLossWeighting
-from .data import (
-    load_crisismmd_annotations,
-    extract_and_cache_clip_features,
-    CrisisMMDDataset,
-    create_stratified_splits,
-    create_lodo_splits,
-    create_dataloaders,
-    compute_class_weights,
-)
-from .trainer import CausalCrisisTrainer, BaselineTrainer
-from .evaluate import (
-    compute_metrics,
-    paired_bootstrap_test,
-    plot_training_curves,
-    plot_tsne_causal_features,
+# ============================================================================
+# CausalCrisis — Package Entry Point
+# V4 components are primary; V3 components available via models_v3/losses_v3
+# ============================================================================
+
+__version__ = "4.0.0"
+
+# ----- V4-active Modules -----
+from .config import (
+    V4Config,
+    CLIPConfig,
+    TrainingConfig,
+    EvalConfig,
+    GuidedCAConfig,
+    LLaVAConfig,
+    get_config,
 )
 
-__version__ = "3.0.0"
+from .models import (
+    CLIPTaskAdapter,
+    CLIPMLPBaseline,
+    GuidedCrossAttention,
+    ThreeModalityClassifier,
+)
+
+from .losses import FocalLoss
+
+from .data import (
+    load_crisismmd_annotations,
+    extract_clip_features,
+    CrisisMMDDataset,
+    CrisisMMD3ModalDataset,
+    create_dataloaders,
+    create_3modal_loaders,
+    create_stratified_splits,
+    create_lodo_splits,
+    compute_class_weights,
+)
+
+from .trainer import (
+    GenericTrainer,
+    BaselineTrainer,
+    EarlyStopping,
+)
+
+from .evaluate import compute_metrics
+
+# ----- V3 Legacy (explicit import when needed) -----
+# from .models_v3 import CausalCrisisV3, HybridDisentangler, BackdoorAdjustment
+# from .losses_v3 import CausalCrisisLoss, OrthogonalLoss, SupConLoss
+# from .config import CausalCrisisConfig, get_v3_config
+
 __all__ = [
-    "CausalCrisisConfig", "AdapterConfig", "get_config",
-    "CausalCrisisV3", "CLIPMLPBaseline", "CLIPTaskAdapter",
-    "CausalCrisisLoss", "FocalLoss", "SupConLoss", "AdaptiveLossWeighting",
-    "load_crisismmd_annotations", "extract_and_cache_clip_features",
-    "CrisisMMDDataset", "create_stratified_splits", "create_lodo_splits",
-    "create_dataloaders", "compute_class_weights",
-    "CausalCrisisTrainer", "BaselineTrainer",
-    "compute_metrics", "paired_bootstrap_test",
-    "plot_training_curves", "plot_tsne_causal_features",
+    # Config
+    "V4Config", "CLIPConfig", "TrainingConfig", "EvalConfig",
+    "GuidedCAConfig", "LLaVAConfig", "get_config",
+    # Models
+    "CLIPTaskAdapter", "CLIPMLPBaseline",
+    "GuidedCrossAttention", "ThreeModalityClassifier",
+    # Losses
+    "FocalLoss",
+    # Data
+    "load_crisismmd_annotations", "extract_clip_features",
+    "CrisisMMDDataset", "CrisisMMD3ModalDataset",
+    "create_dataloaders", "create_3modal_loaders",
+    "create_stratified_splits", "create_lodo_splits",
+    "compute_class_weights",
+    # Training
+    "GenericTrainer", "BaselineTrainer", "EarlyStopping",
+    # Evaluation
+    "compute_metrics",
 ]

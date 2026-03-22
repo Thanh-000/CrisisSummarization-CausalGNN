@@ -549,3 +549,80 @@ def compute_class_weights(labels: np.ndarray) -> torch.Tensor:
     
     print(f"⚖️ Class weights: {weights.tolist()}")
     return weights
+
+
+# ============================================================================
+# 3-Modality Dataset (V4 — image + text + LLaVA)
+# ============================================================================
+class CrisisMMD3ModalDataset(Dataset):
+    """Dataset supporting 3 modalities: image + text + llava (optional)."""
+
+    def __init__(
+        self,
+        image_features: np.ndarray,
+        text_features: np.ndarray,
+        llava_features: Optional[np.ndarray],
+        labels: np.ndarray,
+        indices: Optional[np.ndarray] = None,
+    ):
+        if indices is not None:
+            self.image_features = torch.FloatTensor(image_features[indices])
+            self.text_features = torch.FloatTensor(text_features[indices])
+            self.labels = torch.LongTensor(labels[indices])
+            if llava_features is not None:
+                self.llava_features = torch.FloatTensor(llava_features[indices])
+            else:
+                self.llava_features = None
+        else:
+            self.image_features = torch.FloatTensor(image_features)
+            self.text_features = torch.FloatTensor(text_features)
+            self.labels = torch.LongTensor(labels)
+            if llava_features is not None:
+                self.llava_features = torch.FloatTensor(llava_features)
+            else:
+                self.llava_features = None
+
+    def __len__(self) -> int:
+        return len(self.labels)
+
+    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+        item = {
+            "image_features": self.image_features[idx],
+            "text_features": self.text_features[idx],
+            "label": self.labels[idx],
+        }
+        if self.llava_features is not None:
+            item["llava_features"] = self.llava_features[idx]
+        return item
+
+
+def create_3modal_loaders(
+    image_feats: np.ndarray,
+    text_feats: np.ndarray,
+    llava_feats: Optional[np.ndarray],
+    labels: np.ndarray,
+    train_idx: np.ndarray,
+    val_idx: np.ndarray,
+    test_idx: np.ndarray,
+    batch_size: int = 32,
+    num_workers: int = 2,
+) -> Dict[str, DataLoader]:
+    """Create DataLoaders for 3-modality experiments."""
+    loaders = {}
+
+    for name, idx, shuffle in [
+        ("train", train_idx, True),
+        ("val", val_idx, False),
+        ("test", test_idx, False),
+    ]:
+        ds = CrisisMMD3ModalDataset(
+            image_feats, text_feats, llava_feats, labels, idx
+        )
+        loaders[name] = DataLoader(
+            ds, batch_size=batch_size, shuffle=shuffle,
+            num_workers=num_workers, pin_memory=True,
+            drop_last=(name == "train"),
+        )
+
+    return loaders
+
