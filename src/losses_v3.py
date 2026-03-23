@@ -1,0 +1,168 @@
+# ============================================================================
+# CausalCrisis V3 — Archived Loss Functions
+# OrthogonalLoss, SupConLoss, AdaptiveLossWeighting, CausalCrisisLoss
+# Archived: proved ineffective or unnecessary for V4 pipeline
+# May be revived for H3 (causal disentanglement on enriched features)
+# ============================================================================
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from typing import List, Optional, Dict
+
+
+class OrthogonalLoss(nn.Module):
+    """Force causal features orthogonal to spurious: L = |C·S| / (||C||·||S||)"""
+
+    def forward(self, C: torch.Tensor, S: torch.Tensor) -> torch.Tensor:
+        C_norm = F.normalize(C, dim=-1)
+        S_norm = F.normalize(S, dim=-1)
+        cos_sim = (C_norm * S_norm).sum(dim=-1)
+        return cos_sim.abs().mean()
+
+
+class SupConLoss(nn.Module):
+    """Supervised Contrastive Loss on causal features."""
+
+    def __init__(self, temperature: float = 0.07):
+        super().__init__()
+        self.temperature = temperature
+
+    def forward(self, features: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        device = features.device
+        batch_size = features.shape[0]
+
+        if batch_size <= 1:
+            return torch.tensor(0.0, device=device)
+
+        features = F.normalize(features, dim=1)
+        sim_matrix = torch.mm(features, features.T) / self.temperature
+
+        labels = labels.unsqueeze(1)
+        mask_pos = (labels == labels.T).float()
+        mask_pos.fill_diagonal_(0)
+
+        if mask_pos.sum() == 0:
+            return torch.tensor(0.0, device=device)
+
+        logits_max, _ = sim_matrix.max(dim=1, keepdim=True)
+        logits = sim_matrix - logits_max.detach()
+
+        self_mask = torch.eye(batch_size, device=device)
+        exp_logits = torch.exp(logits) * (1 - self_mask)
+
+        log_prob = logits - torch.log(exp_logits.sum(dim=1, keepdim=True) + 1e-8)
+        mean_log_prob = (mask_pos * log_prob).sum(dim=1) / (mask_pos.sum(dim=1) + 1e-8)
+
+        return -mean_log_prob.mean()
+
+
+class AdaptiveLossWeighting(nn.Module):
+    """Uncertainty-based Adaptive Loss Weighting (Kendall et al., 2018)."""
+
+    def __init__(self, n_losses: int = 4, init_logvar: float = 2.0):
+        super().__init__()
+        self.log_vars = nn.Parameter(torch.full((n_losses,), init_logvar))
+
+    def forward(self, losses: List[torch.Tensor]) -> torch.Tensor:
+        total = 0
+        for i, loss in enumerate(losses):
+            if i >= len(self.log_vars):
+                total += loss
+                continue
+            precision = torch.exp(-self.log_vars[i])
+            total += precision * loss + self.log_vars[i]
+        return total
+
+    def get_weights(self) -> Dict[str, float]:
+        weights = {}
+        names = ["focal", "adversarial", "orthogonal", "supcon"]
+        for i, log_var in enumerate(self.log_vars):
+            name = names[i] if i < len(names) else f"loss_{i}"
+            weights[name] = torch.exp(-log_var).item()
+        return weights
+
+
+class CausalCrisisLoss(nn.Module):
+    """Combined loss cho CausalCrisis V3 (archived)."""
+
+    def __init__(
+        self,
+        num_classes: int = 2,
+        focal_gamma: float = 2.0,
+        alpha_adv: float = 0.1,
+        alpha_ortho: float = 0.05,
+        alpha_supcon: float = 0.1,
+        supcon_temperature: float = 0.07,
+        use_adaptive: bool = True,
+        class_weights: Optional[torch.Tensor] = None,
+        loss_ramp_epochs: int = 20,
+        adaptive_init_logvar: float = 2.0,
+    ):
+        super().__init__()
+        from .losses import FocalLoss
+        self.focal_loss = FocalLoss(alpha=class_weights, gamma=focal_gamma)
+        self.ortho_loss = OrthogonalLoss()
+        self.supcon_loss = SupConLoss(temperature=supcon_temperature)
+        self.domain_ce = nn.CrossEntropyLoss()
+
+        self.alpha_adv = alpha_adv
+        self.alpha_ortho = alpha_ortho
+        self.alpha_supcon = alpha_supcon
+        self.use_adaptive = use_adaptive
+        self.loss_ramp_epochs = loss_ramp_epochs
+
+        if use_adaptive:
+            self.adaptive_weights = AdaptiveLossWeighting(
+                n_losses=4, init_logvar=adaptive_init_logvar
+            )
+        else:
+            self.adaptive_weights = None
+
+    def _get_ramp_factor(self, epoch: int, warmup_epochs: int) -> float:
+        if epoch < warmup_epochs:
+            return 0.0
+        ramp_progress = (epoch - warmup_epochs) / max(self.loss_ramp_epochs, 1)
+        return min(ramp_progress, 1.0)
+
+    def forward(self, model_output, labels, domain_labels=None,
+                epoch=0, warmup_epochs=20):
+        losses = {}
+        ramp = self._get_ramp_factor(epoch, warmup_epochs)
+        losses["ramp_factor"] = ramp
+
+        L_focal = self.focal_loss(model_output["logits"], labels)
+        losses["focal"] = L_focal
+
+        L_ortho_v = self.ortho_loss(model_output["C_v"], model_output["S_v"])
+        L_ortho_t = self.ortho_loss(model_output["C_t"], model_output["S_t"])
+        L_ortho = L_ortho_v + L_ortho_t
+        losses["ortho"] = L_ortho
+
+        L_adv = torch.tensor(0.0, device=labels.device)
+        if domain_labels is not None and model_output["domain_logits_v"] is not None:
+            L_adv_v = self.domain_ce(model_output["domain_logits_v"], domain_labels)
+            L_adv_t = self.domain_ce(model_output["domain_logits_t"], domain_labels)
+            L_adv = L_adv_v + L_adv_t
+        losses["adversarial"] = L_adv
+
+        causal_concat = torch.cat([
+            model_output["C_v"], model_output["C_t"], model_output["C_vt"]
+        ], dim=-1)
+        L_supcon = self.supcon_loss(causal_concat, labels)
+        losses["supcon"] = L_supcon
+
+        if self.use_adaptive and self.adaptive_weights is not None:
+            loss_list = [L_focal, ramp * L_adv, ramp * L_ortho, ramp * L_supcon]
+            total = self.adaptive_weights(loss_list)
+            losses["adaptive_weights"] = self.adaptive_weights.get_weights()
+        else:
+            total = (
+                L_focal
+                + ramp * self.alpha_adv * L_adv
+                + ramp * self.alpha_ortho * L_ortho
+                + ramp * self.alpha_supcon * L_supcon
+            )
+
+        losses["total"] = total
+        return losses

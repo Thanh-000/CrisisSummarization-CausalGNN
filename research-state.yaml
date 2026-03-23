@@ -1,0 +1,187 @@
+# Research State — CausalCrisis V3 → V4 Pivot
+# Updated by the agent after each experiment and reflection.
+
+project:
+  title: "CausalCrisis V4: Breaking the Frozen Feature Ceiling"
+  question: "How to achieve >90% F1 on CrisisMMD Task 1 with causal interpretability?"
+  status: active
+  started: "2026-03-22"
+  domain: "multimodal crisis classification + causal reasoning"
+
+literature:
+  key_papers:
+    - id: "munia2025diffattn"
+      title: "Differential Attention for Multimodal Crisis Event Analysis"
+      authors: "Munia, Zhu, Nasraoui, Imran"
+      year: 2025
+      venue: "CVPRw 2025"
+      arxiv: "2507.05165"
+      relevance: "SOTA on CrisisMMD Task 1: 92.89% F1w. Uses CLIP+LLaVA+Guided CA. Proves LLaVA captions are the missing ingredient."
+      key_results:
+        - "CLIP+LLaVA+Guided CA: 92.89% F1w (Task 1)"
+        - "CLIP+Wiki+Guided CA: 90.45% F1w (Task 1)"
+        - "DenseNet+Electra+Wiki+Guided CA: 86.87% F1w (Task 1)"
+        - "LLaVA > Wiki for knowledge fusion (+2.44% F1w)"
+        - "Guided CA > Cross-Attention (+0.5-1%)"
+        - "Diff Attn marginal improvement over Guided CA"
+      training: "SGD, lr=1e-3, 50 epochs, batch=32, patience=5"
+      data_splits:
+        task1: "9599 train / 1573 val / 1534 test"
+
+    - id: "ma2025camo"
+      title: "CAMO: Causality-Guided Adversarial Multimodal Domain Generalization"
+      authors: "Ma, Zhao, Jiang, Vishnubhatla, Jeong, Beigi, Raglin, Liu"
+      year: 2025
+      venue: "arXiv"
+      arxiv: "2512.08071"
+      relevance: "Directly relevant to our causal disentanglement approach. Uses adversarial disentanglement + unified representation for crisis DG."
+      key_insight: "Joint unified representation before disentanglement (not per-modality like our V3)"
+
+    - id: "clipbca2024"
+      title: "CLIP-BCA-Gated: Dynamic Multimodal Framework for Real-time Humanitarian Crisis Classification"
+      authors: "Unknown"
+      year: 2024
+      venue: "MDPI"
+      relevance: "Achieves 91.77% accuracy on CrisisMMD. Uses bidirectional cross-attention + adaptive gating within CLIP."
+      key_insight: "Noise-robust design with adaptive gating for social media data"
+
+    - id: "causalclip2025"
+      title: "CausalCLIP: Causally-Informed Feature Disentanglement and Filtering"
+      authors: "Various"
+      year: 2025
+      venue: "AAAI 2026"
+      arxiv: "2512.xxxxx"
+      relevance: "Uses adversarial disentanglement + counterfactual interventions on frozen CLIP features. Accepted at AAAI 2026."
+      key_insight: "disentangle-then-filter paradigm with adversarial mask module"
+
+    - id: "cca2025"
+      title: "Causal CLIP Adapter: Causal Disentanglement with ICA for Few-Shot Learning"
+      authors: "Various"
+      year: 2025
+      venue: "arXiv"
+      arxiv: "2508.03102"
+      relevance: "ICA-based disentanglement on CLIP features (similar to our V3 HybridDisentangler)"
+      key_insight: "Unsupervised ICA for disentanglement; designed for few-shot, not crisis"
+
+  open_problems:
+    - "Frozen CLIP features cap at ~78-80% F1 on CrisisMMD with simple classifiers"
+    - "Causal disentanglement on frozen features provides no significant improvement"
+    - "LLaVA caption augmentation proven effective but adds inference cost"
+    - "Domain generalization across disaster types (LODO) remains challenging"
+    - "CAMO uses JOINT representation (fuse before disentangle), our V3 does PER-MODALITY (disentangle before fuse)"
+
+  evidence_gaps:
+    - "No paper tests causal disentanglement WITH LLaVA captions"
+    - "No paper compares LoRA CLIP vs frozen CLIP on CrisisMMD specifically"
+    - "CAMO's actual performance numbers on CrisisMMD not available in our sources"
+    - "Guided CA mechanism not tested with causal features"
+
+hypotheses:
+  - id: H1
+    statement: "Adding LLaVA captions as third modality will boost frozen CLIP baseline from 78% to 88%+ F1"
+    status: running
+    motivation: "Munia et al. showed CLIP+LLaVA = 92.89% F1w. Even without fancy fusion, LLaVA adds rich contextual info."
+    parent: null
+    priority: high
+    prediction: "88-90% F1w with concat+MLP, 91%+ with Guided CA"
+    notebook: "notebooks/CausalCrisis_V4_LLaVA_Experiment.ipynb"
+
+  - id: H2
+    statement: "Guided Cross-Attention (Munia-style) outperforms our CrossAttentionFusion on seq_len=1 vectors"
+    status: pending
+    motivation: "Our cross-attention degenerates with seq_len=1. Guided CA uses self-attn+projection+sigmoid masks, which works even on single vectors."
+    parent: null
+    priority: high
+    prediction: "+1-2% F1 over standard cross-attention"
+
+  - id: H3
+    statement: "Causal disentanglement adds value only AFTER closing the performance gap (with LLaVA+Guided CA)"
+    status: pending
+    motivation: "V3 disentanglement failed because the feature quality bottleneck made any architectural improvement invisible. With richer features (LLaVA), disentanglement may show benefit."
+    parent: null
+    priority: medium
+    prediction: "With LLaVA base >90%, disentanglement adds +0.5-1%"
+
+  - id: H4
+    statement: "CAMO-style joint unified representation before disentanglement outperforms our per-modality approach"
+    status: pending
+    motivation: "CAMO fuses first, then disentangles. Our V3 disentangles first, then fuses. CAMO's approach lets disentanglement see cross-modal interactions."
+    parent: null
+    priority: medium
+    prediction: "Joint > per-modality by 1-2% F1"
+
+  - id: H5
+    statement: "LoRA fine-tuning of CLIP (rank=4) on CrisisMMD improves baseline from 78% to 85%+"
+    status: pending
+    motivation: "Frozen CLIP has domain gap. LoRA (rank=4) adds only ~0.3M params but adapts feature space."
+    parent: null
+    priority: medium
+    prediction: "83-86% F1w baseline, higher with full pipeline"
+
+  - id: H6
+    statement: "Simplified pipeline (CLIP/LoRA + LLaVA + Guided CA + MLP) can reach 93%+ F1, matching/exceeding Munia et al."
+    status: pending
+    motivation: "Combine best elements: LoRA-adapted features + LLaVA captions + proven Guided CA fusion"
+    parent: null
+    priority: high
+    prediction: "93-95% F1w, paper-worthy result"
+
+  - id: H7
+    statement: "Causal disentanglement improves LODO (domain generalization) even if it doesn't improve in-domain F1"
+    status: pending
+    motivation: "Causal features should be domain-invariant. Even if in-domain F1 is same, LODO F1 should be better."
+    parent: null
+    priority: medium
+    prediction: "+2-3% LODO F1 with disentanglement"
+
+experiments:
+  proxy_metric: "val_f1_weighted"
+  baseline_value: 0.783
+  best_value: 0.783
+  total_runs: 6
+  trajectory:
+    - run_id: "v3_baseline_frozen"
+      hypothesis: "H0 (initial)"
+      metric_value: 0.780
+      delta: null
+      wall_time_min: 15
+      change_summary: "CLIP ViT-L/14 + MLP baseline (frozen)"
+      timestamp: "2026-03-22T14:00:00"
+
+    - run_id: "v3_full_model"
+      hypothesis: "H0 (initial)"
+      metric_value: 0.783
+      delta: "+0.003"
+      wall_time_min: 25
+      change_summary: "Full V3 with adapter+disentangle+GRL+SupCon. No significant improvement."
+      timestamp: "2026-03-22T15:00:00"
+
+    - run_id: "v4_notebook_ready"
+      hypothesis: "H1+H2"
+      metric_value: null
+      delta: null
+      wall_time_min: 0
+      change_summary: "V4 notebook created with 5 experiments (A1,A2,B1,B2,C1), checkpoint resume, dual LLaVA encoding. Ready to run on Colab A100."
+      timestamp: "2026-03-22T19:55:00"
+
+    - run_id: "v4_architecture_refactor"
+      hypothesis: "infrastructure"
+      metric_value: null
+      delta: null
+      wall_time_min: 30
+      change_summary: "Full 3-phase refactor: V4 components integrated into src/ (GCA, 3ModalClassifier, GenericTrainer, V4Config), V3 archived to models_v3.py/losses_v3.py, notebook imports from src/ (-27% LOC). Package v4.0.0."
+      timestamp: "2026-03-22T20:25:00"
+
+outer_loop:
+  cycle: 2
+  last_direction: "refactor"
+  last_reflection: "V4 architecture refactored. src/ package now V4-ready (v4.0.0). Notebook uses GenericTrainer with src/ imports. Next: run experiments on Colab."
+
+workspace:
+  findings: "findings.md"
+  log: "research-log.md"
+  literature_dir: "literature/"
+  experiments_dir: "experiments/"
+  to_human_dir: "to_human/"
+  paper_dir: "paper/"
+
