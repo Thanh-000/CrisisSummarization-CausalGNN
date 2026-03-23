@@ -58,10 +58,23 @@ try:
     text_features = np.load(TXT_FEAT_PATH)
     llava_features = np.load(LLAVA_FEAT_COMBINED)
 except Exception as e:
-    print(f"⚠️ Missing features! Please ensure feature matching is generated.")
-    # Fallback to random initialization for script demonstration
+    print(f"⚠️ Features not found locally at {CACHE_DIR}.")
+    print("If you are on Colab and need to download via SSH/SFTP with Aria2, uncomment the following code in the notebook:")
+    # -------------------------------------------------------------------------
+    # !apt-get update && apt-get install -y aria2
+    # !mkdir -p data/processed
+    # # Thay đổi thông tin user, pass, IP, và đường dẫn tới thư mục chứa file .npy trên server của bạn
+    # SFTP_URL_IMG = "sftp://<user>:<password>@<IP_SERVER>:<PORT>/path/to/clip_image_features.npy"
+    # SFTP_URL_TXT = "sftp://<user>:<password>@<IP_SERVER>:<PORT>/path/to/clip_text_features.npy"
+    # SFTP_URL_LLAVA = "sftp://<user>:<password>@<IP_SERVER>:<PORT>/path/to/clip_llava_features_combined.npy"
+    
+    # !aria2c -x 16 -s 16 -k 1M $SFTP_URL_IMG -d data/processed -o clip_image_features.npy
+    # !aria2c -x 16 -s 16 -k 1M $SFTP_URL_TXT -d data/processed -o clip_text_features.npy
+    # !aria2c -x 16 -s 16 -k 1M $SFTP_URL_LLAVA -d data/processed -o clip_llava_features_combined.npy
+    # -------------------------------------------------------------------------
+    
     print("Initializing dummy features for debugging/runability test without full 50GB dataset.")
-    samples = len(data)
+    samples = len(data) if len(data) > 0 else 16000
     image_features = np.random.randn(samples, 768)
     text_features = np.random.randn(samples, 768)
     llava_features = np.random.randn(samples, 768)
