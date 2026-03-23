@@ -1,4 +1,28 @@
 # %%
+# ============================================================================
+# 0. MÔI TRƯỜNG COLAB: ZERO-DRIVE & ARIA2-SFTP DOWNLOAD (Chỉ chạy khi dùng Colab)
+# ============================================================================
+import os
+import sys
+
+# Bỏ qua nếu chạy Local
+if 'google.colab' in sys.modules:
+    print("Detected Google Colab. Setting up environment...")
+    # Tải code mới nhất nhánh v3-causalcrisis-enhanced
+    os.system("git clone https://github.com/Thanh-000/CrisisSummarization-CausalGNN.git")
+    os.chdir("CrisisSummarization-CausalGNN")
+    os.system("git checkout v3-causalcrisis-enhanced")
+    os.system("pip install -r requirements.txt")
+    
+    # Cài Aria2 và dọn thư mục
+    os.system("apt-get update && apt-get install -y aria2")
+    os.makedirs("data/processed", exist_ok=True)
+    
+    print("Bạn vui lòng sửa SFTP_URL để tải data qua mạng. Default đang là Random Tensors.")
+    # uncomment khi có data thật:
+    # os.system("aria2c -x 16 -s 16 -k 1M sftp://<user>:<password>@<IP>:22/path/clip_image_features.npy -d data/processed -o clip_image_features.npy")
+
+# %%
 import os
 import time
 import json
